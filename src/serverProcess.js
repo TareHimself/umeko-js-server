@@ -1,33 +1,22 @@
-
 const process = require('process');
 const fs = require('fs');
 const cors = require('cors');
 const express = require('express');
-const http = require('http');
 
 
-const HeatSync = require('heatsync');
-
-const sync = new HeatSync();
-
-process.env = sync.require('../secretes.json');
-const utils = sync.require('./utils');
+process.env = require('../secretes.json');
+const utils = require('./utils');
 
 const app = express();
 
 app.use(express.json());
 app.use(cors());
+app.set('trust proxy', true);
 
-const server = http.createServer(app);
+const port = 8080;
 
-const { Server } = require("socket.io");
-const io = new Server(server);
-
-const req = require('express/lib/request');
-
-const port = process.argv.includes('debug') ? 49154 : 8080;
-
-const dashboardSessions = new Map();
+// map of sessions 
+const sessions = new Map();
 
 global.dashboardSessions = dashboardSessions;
 

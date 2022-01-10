@@ -59,7 +59,7 @@ async function createSession(req,res,io) {
         'client_secret': process.env.DISCORD_CLIENT_SECRETE,
         'grant_type': 'authorization_code',
         'code': req.body['token'],
-        'redirect_uri': process.argv.includes('alpha') ? process.env.DISCORD_REDIRECT_URI_ALPHA : process.env.DISCORD_REDIRECT_URI
+        'redirect_uri': process.argv.includes('debug') ? process.env.DISCORD_REDIRECT_URI_DEBUG : process.env.DISCORD_REDIRECT_URI
     });
 
 

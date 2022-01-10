@@ -2,7 +2,8 @@ const EventEmitter = require("events");
 const axios = require('axios');
 const { clear } = require("console");
 const sessionTimeout = 900000; //15 minutes
-class HandleDasboardSession extends EventEmitter {
+
+module.exports = class DasboardSession extends EventEmitter {
 
     constructor(serverSocket, sessionId, discordApiToken) {
         super();
@@ -49,31 +50,24 @@ class HandleDasboardSession extends EventEmitter {
             'Authorization': `${this.discordApiToken.token_type} ${this.discordApiToken.access_token}`
         }
 
-        const serverSocket = this.serverSocket;
-
         axios.get("https://discordapp.com/api/users/@me/guilds", { headers: headers })
             .then((result) => {
 
-                const guildsWithRights = []
                 const isAdmin = function (permissions) {
                     if (typeof permissions !== 'number') return false;
                     return eval(`(${permissions}n & (1n << 3n)) === (1n << 3n)`)
                 }
 
-                result.data.forEach(function (guild, index) {
+                const guildsWithRights = result.data.filter(function (guild){
                     if (guild.owner || isAdmin(guild.permissions))
                     {
-                        if(serverSocket.botConnections !== undefined)
-                        {
-                            if(serverSocket.botConnections.has(guild.id))
-                            {
-                                guild.botShard = 0;
-                            }
-                        }
-                        
-                        guildsWithRights.push(guild);
-                    } 
+                        guild.clusterId = 0;
+                        return true;
+                    }
+
+                    return false;
                 });
+
 
                 res.send(guildsWithRights);
             }, (error) => {
@@ -102,11 +96,7 @@ class HandleDasboardSession extends EventEmitter {
         this.refreshTimeout();
 
         if (req.body["guildId"] === undefined) return res.send({ result: 'error', error: "No guild Id was sent" });
-
-        const onSettingsRecieved = (settings) => {
-            this.serverSocket.removeListener('guildSettings',onSettingsRecieved)
-            res.send(settings);
-        }
+        
 
         this.serverSocket.on('guildSettings', onSettingsRecieved);
         
@@ -150,5 +140,3 @@ class HandleDasboardSession extends EventEmitter {
     }
 
 }
-
-module.exports = HandleDasboardSession;
