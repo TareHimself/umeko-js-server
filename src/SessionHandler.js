@@ -19,7 +19,7 @@ module.exports = class SessionHandler extends EventEmitter {
     }
 
 
-    async getUser(res) {
+    async getUser(sessions,sessionId,res) {
         this.refreshTimeout();
         if (this.cache.user.discordInfo) {
             res.send({...this.cache.user.dbInfo,...this.cache.user.discordInfo});
@@ -76,7 +76,7 @@ module.exports = class SessionHandler extends EventEmitter {
         }
     }
 
-    async getGuilds(res) {
+    async getGuilds(sessions,sessionId,res) {
 
         this.refreshTimeout();
 
@@ -110,7 +110,7 @@ module.exports = class SessionHandler extends EventEmitter {
             });
     }
 
-    async getGuild(req, res) {
+    async getGuild(sessions,sessionId,req,res) {
         this.refreshTimeout();
 
         if (req.body["guildId"] === undefined) return res.send({ error: "No guild Id was sent" });
@@ -124,7 +124,7 @@ module.exports = class SessionHandler extends EventEmitter {
 
     }
 
-    async getGuildSettings(req, res) {
+    async getGuildSettings(sessions,sessionId,req,res) {
         this.refreshTimeout();
 
         if (req.body["guildId"] === undefined) return res.send({ error: "No guild Id was sent" });
@@ -135,7 +135,7 @@ module.exports = class SessionHandler extends EventEmitter {
         this.serverSocket.emit('getGuildSettings', req.body["guildId"]);
     }
 
-    async refreshToken() {
+    async refreshToken(sessions,sessionId) {
         const data = new URLSearchParams({
             'client_id': process.env.CLIENT_ID,
             'client_secret': process.env.CLIENT_SECRETE,
@@ -159,78 +159,75 @@ module.exports = class SessionHandler extends EventEmitter {
         }
     }
 
-    async updateCard(req, res) {
+    async updateCard(sessions,sessionId,req, res) {
 
         this.refreshTimeout();
 
-        const base64Card = req.body.card;
+        const payload = req.body;
 
-        if (!base64Card) return res.send({ error: 'no image sent' });
+        const base64Card = payload.background;
 
-        const buffer = Buffer.from(base64Card, "base64");
+        if(base64Card)
+        {
+            const buffer = Buffer.from(base64Card, "base64");
 
-        const oldBgId = this.cache.user.dbInfo.card_bg_id;
-
-        const formData = {
-            api_key: process.env.IMAGE_SHACK_API_KEY,
-            album: 'umeko-rank-cards',
-            'customBufferFile': {
-                value: buffer,
-                options: {
-                    filename: `user-card-background-${this.cache.user.discordInfo.id}.jpg`
+            const oldBgId = this.cache.user.dbInfo.card_bg_id;
+    
+            const formData = {
+                api_key: process.env.IMAGE_SHACK_API_KEY,
+                album: 'umeko-rank-cards',
+                'customBufferFile': {
+                    value: buffer,
+                    options: {
+                        filename: `user-card-background-${this.cache.user.discordInfo.id}.jpg`
+                    }
                 }
             }
-        }
+    
+            const options = {
+                method: 'POST',
+                uri: 'https://api.imageshack.com/v2/images',
+                formData: formData,
+                headers: {
+                    /* 'content-type': 'multipart/form-data' */ // Is set automatically
+                }
+            };
+    
+            const imageUploadResponse = await rp(options).catch((error) => {
+                utils.log(err);
+                res.send({ error: 'error saving image' });
+            });
 
-        const options = {
-            method: 'POST',
-            uri: 'https://api.imageshack.com/v2/images',
-            formData: formData,
-            headers: {
-                /* 'content-type': 'multipart/form-data' */ // Is set automatically
-            }
-        };
-
-        const imageUploadResponse = await rp(options).catch((error) => {
-            utils.log(err);
-            res.send({ error: 'error saving image' });
-        });
-
-        if (imageUploadResponse) {
-            const data = JSON.parse(imageUploadResponse);
-            
+            if(imageUploadResponse)
+            {
+                const data = JSON.parse(imageUploadResponse);
             this.cache.user.dbInfo.card_bg_id = data.result.images[0].id;
             this.cache.user.dbInfo.card_bg_url = `https://imagizer.imageshack.com/v2/1000x300q90/${data.result.images[0].server}/${data.result.images[0].filename}`;
-
-            res.send({ url: this.cache.user.dbInfo.card_bg_url });
-
-            await db.post(`/tables/user_settings/rows`, { id : this.cache.user.discordInfo.id, card_bg_id: this.cache.user.dbInfo.card_bg_id, card_bg_url: this.cache.user.dbInfo.card_bg_url }).catch(utils.log);
-
+            
             if (oldBgId !== '') {
-                const deleteResponse = await axios.delete(`https://api.imageshack.com/v2/images/${oldBgId}?auth_token=${process.env.IMAGE_SHACK_API_TOKEN}`).catch((error)=>{
+                axios.delete(`https://api.imageshack.com/v2/images/${oldBgId}?auth_token=${process.env.IMAGE_SHACK_API_TOKEN}`).catch((error)=>{
                     utils.log(error.response.data)
                     utils.log(error.response.data.error);
                 });
-                if(deleteResponse)
-                {
-                }
-            }
-
+            }    
+        }
         }
 
+        this.cache.user.dbInfo.color = payload.color;
+            this.cache.user.dbInfo.card_opacity = payload.card_opacity;
 
+            const dbPayload = {
+                id : this.cache.user.discordInfo.id,
+                color : this.cache.user.dbInfo.color,
+                card_opacity : this.cache.user.dbInfo.card_opacity,
+                card_bg_id: this.cache.user.dbInfo.card_bg_id, 
+                card_bg_url: this.cache.user.dbInfo.card_bg_url
+            }
 
-    }
+            await db.post(`/tables/user_settings/rows`,dbPayload).catch(utils.log);
 
-    refreshTimeout() {
-        utils.log(`Session ${this.sessionId} refreshed`);
-        clearTimeout(this.timeout);
-        this.timeout = setTimeout(this.destroy.bind(this), sessionTimeout);
-    }
+            res.send({ url: this.cache.user.dbInfo.card_bg_url });
 
-    destroy() {
-        clearInterval(this.refreshTokenReference);
-        this.emit('destroy', this.sessionId, "Inactivity");
     }
 
 }

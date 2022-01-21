@@ -27,11 +27,22 @@ function log(data) {
 
     const argumentValues = Object.values(arguments);
 
+    const stack = new Error().stack;
+    const pathDelimiter = process.platform !== 'win32' ? '/' : '\\';
+    const simplifiedStack = stack.split('\n')[2].split(pathDelimiter);
+    const file = simplifiedStack[simplifiedStack.length - 1].split(')')[0];
+    argumentValues.unshift(`${file} ::`);
+
     argumentValues.unshift(`${time(':')} ::`);
 
     console.log.apply(null,argumentValues);
 }
 
+function utcInSeconds()
+{
+    return Math.floor(Date.now()/1000);
+}
 
 
+module.exports.utcInSeconds = utcInSeconds;
 module.exports.log = log;
