@@ -213,7 +213,14 @@ async function notifyUserUpdate(userId){
         if(targets.length)
         {
             targets.forEach(function(target){
-                axios.post(target,{ id : userId}).catch((error)=>utils.log(error.response.data));
+                try {
+                    axios.post(target,{ id : userId}).catch((error)=>{
+                        utils.log(error.message)
+                    });
+                } catch (error) {
+                    utils.log(error);
+                }
+                
             });
         }
     }
@@ -224,9 +231,14 @@ async function notifyGuildUpdate(guildId){
 
     if(rows.length)
     {
-        const target = rows[0].target;
-
-        axios.post(target,{ id : guildId}).catch((error)=>utils.log(error.response.data));
+        try {
+            const target = rows[0].target;
+            axios.post(target,{ id : guildId}).catch((error)=>{
+                utils.log(error.message)
+            }); 
+        } catch (error) {
+            utils.log(error);
+        }  
     }
 }
 
