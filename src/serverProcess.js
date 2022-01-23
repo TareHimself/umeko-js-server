@@ -16,6 +16,8 @@ const memoryCache = new Map();
 // connect to the local db containing all active sessions
 const localDb = require('better-sqlite3')('./src/sessionStore.db', { fileMustExist: true });
 
+
+
 // make them globally accessible
 Object.assign(dataBus, { localDb : localDb, memoryCache: memoryCache });
 
