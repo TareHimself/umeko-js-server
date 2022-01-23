@@ -1,4 +1,5 @@
 const axios = require('axios');
+const cluster = require('cluster');
 
 function time(sep = '') {
 
@@ -32,6 +33,8 @@ function log(data) {
     const simplifiedStack = stack.split('\n')[2].split(pathDelimiter);
     const file = simplifiedStack[simplifiedStack.length - 1].split(')')[0];
     argumentValues.unshift(`${file} ::`);
+
+    argumentValues.unshift(`${cluster.isMaster ? "Master" : "Child"} ID-${process.pid} ::`);
 
     argumentValues.unshift(`${time(':')} ::`);
 

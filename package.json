@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "start": "node ./src/index.js --trace-sync-io"
+    "start": "node ./src/index.js --trace-sync-io",
+    "reset": "node ./resetDatabase.js"
   },
   "dependencies": {
     "axios": "^0.24.0",

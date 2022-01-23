@@ -1,0 +1,69 @@
+{
+    "sessionsTableFormat": {
+        "name": "sessions",
+        "rows": [
+            {
+                "name": "session_id",
+                "type": "TEXT",
+                "option": "PRIMARY KEY"
+            },
+            {
+                "name": "session_data",
+                "type": "TEXT",
+                "option": "DEFAULT ''"
+            },
+            {
+                "name": "discord_token",
+                "type": "TEXT",
+                "option": "DEFAULT ''"
+            },
+            {
+                "name": "last_update_time",
+                "type": "INTEGER",
+                "option": "DEFAULT 0"
+            },
+            {
+                "name": "created_at",
+                "type": "INTEGER",
+                "option": "DEFAULT 0"
+            },
+            {
+                "name": "expire_at",
+                "type": "INTEGER",
+                "option": "DEFAULT 0"
+            }
+        ]
+    },
+
+    "guildNotificationsTableFormat": {
+        "name": "guild_notifications",
+        "rows": [
+            {
+                "name": "id",
+                "type": "TEXT",
+                "option": "PRIMARY KEY"
+            },
+            {
+                "name": "target",
+                "type": "TEXT",
+                "option": "DEFAULT ''"
+            }
+        ]
+    },
+
+    "userNotificationsTableFormat": {
+        "name": "user_notifications",
+        "rows": [
+            {
+                "name": "id",
+                "type": "TEXT",
+                "option": "PRIMARY KEY"
+            },
+            {
+                "name": "targets",
+                "type": "TEXT",
+                "option": "DEFAULT ''"
+            }
+        ]
+    }
+}
