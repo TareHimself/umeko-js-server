@@ -1,6 +1,19 @@
 const cluster = require('cluster');
 const os = require('os');
 const utils = require('./utils');
+const fs = require('fs');
+
+// fix concurrency issues
+
+const localDb = require('better-sqlite3')('./src/sessionStore.db', { fileMustExist: true });
+localDb.pragma('journal_mode = WAL');
+setInterval(fs.stat.bind(null, './src/sessionStore.db-wal', (err, stat) => {
+    if (err) {
+      if (err.code !== 'ENOENT') throw err;
+    } else if (stat.size / (1024*1024) > 50) {
+      localDb.pragma('wal_checkpoint(RESTART)');
+    }
+  }), 5000).unref();
 
 if (cluster.isMaster) {
     
