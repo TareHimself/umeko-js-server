@@ -85,7 +85,7 @@ function hasLatestSessionData(sessionId) {
             const fetchStatement = `SELECT * FROM sessions WHERE session_id ='${sessionId}'`;
             const newSessionData = localDb.prepare(fetchStatement).all()[0];
 
-            memoryCache.set(sessionId, JSON.parse(newSessionData.session_data));
+            memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data,"base64").toString()));
             utils.log(`Loaded Session ${sessionId} From Storage`);
             return memoryCache.get(sessionId);
         }
@@ -100,7 +100,7 @@ function hasLatestSessionData(sessionId) {
         const fetchStatement = `SELECT * FROM sessions WHERE session_id ='${sessionId}'`;
         const newSessionData = localDb.prepare(fetchStatement).all()[0];
 
-        memoryCache.set(sessionId, JSON.parse(newSessionData.session_data));
+        memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data,"base64").toString()));
         memoryCache.get(sessionId).last_update_time = currentSessionData.last_update_time;
         utils.log(`Refreshed Session ${sessionId}`);
     }
@@ -115,7 +115,10 @@ function updateSession(sessionId) {
     if (memoryCache.get(sessionId)) {
         const currentTime = utils.utcInSeconds();
 
-        const updateStatement = `UPDATE sessions SET session_data='${JSON.stringify(memoryCache.get(sessionId))}', last_update_time=${currentTime}, expire_at=${currentTime + SESSION_TIMEOUT} WHERE session_id='${sessionId}'`;
+        const sessionData = Buffer.from(JSON.stringify(memoryCache.get(sessionId))).toString("base64");
+
+        const updateStatement = `UPDATE sessions SET session_data='${sessionData}', last_update_time=${currentTime}, expire_at=${currentTime + SESSION_TIMEOUT} WHERE session_id='${sessionId}'`;
+
 
         localDb.prepare(updateStatement).run();
     }
@@ -143,9 +146,6 @@ async function createSession(request, response) {
         'redirect_uri': process.argv.includes('debug') ? process.env.DISCORD_REDIRECT_URI_DEBUG : process.env.DISCORD_REDIRECT_URI
     });
 
-    utils.log(data);
-
-
     try {
         axios.post("https://discordapp.com/api/oauth2/token", data)
             .then((result) => {
@@ -170,7 +170,9 @@ async function createSession(request, response) {
                         last_update_time: currentTime
                     })
 
-                    const createStatement = `INSERT INTO sessions VALUES ('${sessionId}','${JSON.stringify(memoryCache.get(sessionId))}','${resultData.access_token}',${currentTime},${currentTime},${currentTime + SESSION_TIMEOUT})`;
+                    const sessionData = Buffer.from(JSON.stringify(memoryCache.get(sessionId))).toString("base64");
+
+                    const createStatement = `INSERT INTO sessions VALUES ('${sessionId}','${sessionData}','${resultData.access_token}',${currentTime},${currentTime},${currentTime + SESSION_TIMEOUT})`;
 
                     localDb.prepare(createStatement).run()
 
@@ -272,11 +274,11 @@ async function getUser(request, response) {
 
         session.user.discordInfo = userDiscordDataResponse.data.user;
 
-        const userDatabaseResponse = await db.get(`/tables/user_settings/rows?WHERE=id%3D%${userDiscordDataResponse.data.user.id}`).catch(utils.log);
-
+        const userDatabaseResponse = await db.get(`/tables/user_settings/rows`,[session.user.discordInfo.id]).catch(utils.log);
+        
         const userSettings = userDatabaseResponse.data;
 
-        if (userSettings.data.length === 0) {
+        if (!userSettings.length) {
             const userSetting = {
                 id: userDiscordDataResponse.data.user.id,
                 color: '#87ceeb',
@@ -286,7 +288,7 @@ async function getUser(request, response) {
                 afk_options: ''
             }
 
-            await db.post('/tables/user_settings/rows', userSetting).catch(utils.log);
+            await db.post('/tables/user_settings/rows', [userSetting]).catch(utils.log);
 
             session.user.dbInfo = {
                 id: userDiscordDataResponse.data.user.id,
@@ -298,7 +300,7 @@ async function getUser(request, response) {
             }
         }
         else {
-            session.user.dbInfo = userSettings.data[0];
+            session.user.dbInfo = userSettings[0];
             session.user.dbInfo.afk_options = new URLSearchParams(session.user.dbInfo.afk_options);
         }
 
@@ -317,18 +319,22 @@ async function getGuilds(request, response) {
     const session = hasLatestSessionData(sessionId);
 
     if (!session) return response.send({ error: EXPIRED_SESSION_MESSAGE });
-
+    
     if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds ) return response.send(session.guilds);
 
     const headers = {
         'Authorization': `Bearer ${session.token}`
     }
 
-    
+    const discordGuildsResponse = await axios.get("https://discordapp.com/api/users/@me/guilds", { headers: headers }).catch((error)=>{
+        if(session.guilds)
+        {
+            response.send(session.guilds);
+        }
+        utils.log(error.message);
+    })
 
-    const discordGuildsResponse = await axios.get("https://discordapp.com/api/users/@me/guilds", { headers: headers })
-
-    if(!discordGuildsResponse.data) return response.send({error : 'recieved invalid response from discord api'});
+    if(!discordGuildsResponse || !discordGuildsResponse.data) return response.send({error : 'recieved invalid response from discord api'});
 
     const discordGuilds = discordGuildsResponse.data;
 
@@ -341,27 +347,17 @@ async function getGuilds(request, response) {
         return guild.owner || isAdmin(guild.permissions);
     });
 
-    let whereStatement = '';
+    const guildsToFetch = guildsWithRights.map(guild => guild.id)
 
-    guildsWithRights.forEach(function (guild) {
-        whereStatement += `id='${guild.id}'${guild.id !== guildsWithRights[guildsWithRights.length - 1].id ? ' OR ' : ''}`;
-    });
-
-    const params = new URLSearchParams();
-
-    params.append('where', whereStatement);
-
-    utils.log(whereStatement)
-
-    const databaseGuildsResponse = await db.get(`/tables/guild_settings/rows`,{ params : params }).catch(utils.log);
+    const databaseGuildsResponse = await db.get(`/tables/guild_settings/rows`,guildsToFetch).catch(utils.log);
 
     if(!databaseGuildsResponse.data) return response.send({error : 'recieved invalid response from database'});
 
-    const databaseGuilds = databaseGuildsResponse.data.data;
+    const databaseGuilds = databaseGuildsResponse.data;
 
-    if(databaseGuilds.length);
-
-    const databaseGuildsIds = databaseGuilds.map(guild => guild.id);
+    if(databaseGuilds.length)
+    {
+        const databaseGuildsIds = databaseGuilds.map(guild => guild.id);
 
     guildsWithRights.sort(function(guildA,guildB)
     {
@@ -371,10 +367,11 @@ async function getGuilds(request, response) {
 
         return (guildA.hasBot === guildB.hasBot)? 0 : guildA.hasBot ? -1 : 1;
     })
-
-    utils.log(guildsWithRights);
-
+    }
+    
     response.send(guildsWithRights);
+
+    session.guilds = guildsWithRights;
 
     updateSession(sessionId);
 }
@@ -416,16 +413,16 @@ async function getGuildSettings(request, response) {
 
     if (!guildId) return response.send({ error: "No guild Id was sent" });
 
-    const guildDatabaseResponse = await db.get(`/tables/guild_settings/rows?WHERE=id%3D%${guildId}`).catch(utils.log);
+    const guildDatabaseResponse = await db.get(`/tables/guild_settings/rows`,[guildId]).catch(utils.log);
 
         const guildSettings = guildDatabaseResponse.data;
 
-        if (!guildSettings.data.length) {
+        if (!guildSettings.length) {
             response.send({ error : 'guildDoesNotExist' });
         }
         else
         {
-            const guildData = guildSettings.data[0];
+            const guildData = guildSettings[0];
 
             response.send(guildData);
         }
@@ -449,9 +446,7 @@ async function updateGuildSettings(request, response) {
 
     if(!data) return response.send({ error: "No Data to update was sent" });
 
-    const payload = { id: guildId , ...data};
-
-    const guildDatabaseResponse = await db.post(`/tables/guild_settings/rows`,payload).catch(utils.log);
+    const guildDatabaseResponse = await db.post(`/tables/guild_settings/rows`,[{ id: guildId , ...data}]).catch(utils.log);
 
     response.send({ result : 'success' });
 
@@ -527,7 +522,7 @@ async function updateCard(request, response) {
         card_bg_url: session.user.dbInfo.card_bg_url
     }
 
-    await db.post(`/tables/user_settings/rows`, dbPayload).catch(utils.log);
+    await db.post(`/tables/user_settings/rows`, [dbPayload]).catch(utils.log);
 
     response.send({ url: session.user.dbInfo.card_bg_url });
 
@@ -631,7 +626,7 @@ async function updateUserNotifications(request, response) {
             whereStatement += `id='${id}'${id === data[data.length - 1] ? "" : " OR "}`;
         })
 
-        const getguildSubscriptionsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
+        const getguildSubscriptioznsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
 
         const currentSubscriptions = localDb.prepare(getguildSubscriptionsStatement).all();
 
