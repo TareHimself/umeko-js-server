@@ -46,6 +46,6 @@ function utcInSeconds()
     return Math.floor(Date.now()/1000);
 }
 
-
+module.exports.time = time;
 module.exports.utcInSeconds = utcInSeconds;
 module.exports.log = log;

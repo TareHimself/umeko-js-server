@@ -15,6 +15,14 @@ setInterval(fs.stat.bind(null, './src/sessionStore.db-wal', (err, stat) => {
     }
   }), 5000).unref();
 
+if(!fs.existsSync('./src/backups')) fs.mkdirSync('./src/backups');
+
+localDb.backup(`./src/backups/backup-${utils.time('-')}.db`);
+
+setInterval(()=>{
+  localDb.backup(`./src/backups/backup-${utils.time('-')}.db`);
+}, 1.44e+7).unref();// every 4 hours
+
 if (cluster.isMaster) {
     
     // Take advantage of multiple CPUs
