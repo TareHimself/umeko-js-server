@@ -74,3 +74,7 @@ secretes.json
 
 # FuseBox cache
 .fusebox/
+
+*.db
+*.db-wal
+*.db-shm
