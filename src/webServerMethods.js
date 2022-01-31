@@ -274,7 +274,7 @@ async function getUser(request, response) {
 
         session.user.discordInfo = userDiscordDataResponse.data.user;
 
-        const userDatabaseResponse = await db.get(`/tables/user_settings/rows`,[session.user.discordInfo.id]).catch(utils.log);
+        const userDatabaseResponse = await db.get(`/tables/user_settings/rows?data=${session.user.discordInfo.id}`).catch(utils.log);
         
         const userSettings = userDatabaseResponse.data;
 
@@ -349,7 +349,7 @@ async function getGuilds(request, response) {
 
     const guildsToFetch = guildsWithRights.map(guild => guild.id)
 
-    const databaseGuildsResponse = await db.get(`/tables/guild_settings/rows`,guildsToFetch).catch(utils.log);
+    const databaseGuildsResponse = await db.get(`/tables/guild_settings/rows?data=${guildsToFetch.join(',')}`).catch(utils.log);
 
     if(!databaseGuildsResponse.data) return response.send({error : 'recieved invalid response from database'});
 
@@ -413,7 +413,7 @@ async function getGuildSettings(request, response) {
 
     if (!guildId) return response.send({ error: "No guild Id was sent" });
 
-    const guildDatabaseResponse = await db.get(`/tables/guild_settings/rows`,[guildId]).catch(utils.log);
+    const guildDatabaseResponse = await db.get(`/tables/guild_settings/rows?data=${guildId}`).catch(utils.log);
 
         const guildSettings = guildDatabaseResponse.data;
 
