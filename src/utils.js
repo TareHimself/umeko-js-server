@@ -1,4 +1,3 @@
-const axios = require('axios');
 const cluster = require('cluster');
 
 function time(sep = '') {

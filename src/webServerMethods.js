@@ -4,6 +4,10 @@ const FormData = require('form-data');
 const uuid = require('uuid');
 var rp = require('request-promise');
 const fs = require("fs");
+const { Routes } = require('discord-api-types/v9');
+const { botRest } = require('./dataBus');
+
+
 
 const db = require('./db');
 const utils = require('./utils');
@@ -139,8 +143,8 @@ async function createSession(request, response) {
     if (request.body['token'] === undefined) return { error: 'No token sent' };
 
     const data = new URLSearchParams({
-        'client_id': process.argv.includes('debug') ? process.env.DISCORD_CLIENT_ID_DEBUG : process.env.DISCORD_CLIENT_ID,
-        'client_secret': process.argv.includes('debug') ? process.env.DISCORD_CLIENT_SECRETE_DEBUG : process.env.DISCORD_CLIENT_SECRETE,
+        'client_id': process.argv.includes('debug') ? process.env.DISCORD_BOT_ID_DEBUG : process.env.DISCORD_BOT_ID,
+        'client_secret': process.argv.includes('debug') ? process.env.DISCORD_BOT_SECRETE_DEBUG : process.env.DISCORD_BOT_SECRETE,
         'grant_type': 'authorization_code',
         'code': request.body['token'],
         'redirect_uri': process.argv.includes('debug') ? process.env.DISCORD_REDIRECT_URI_DEBUG : process.env.DISCORD_REDIRECT_URI
@@ -216,7 +220,7 @@ async function notifyUserUpdate(userId){
         {
             targets.forEach(function(target){
                 try {
-                    axios.post(target,{ id : userId}).catch((error)=>{
+                    axios.post(`${target}/user-update`,{ id : userId}).catch((error)=>{
                         utils.log(error.message)
                     });
                 } catch (error) {
@@ -235,7 +239,7 @@ async function notifyGuildUpdate(guildId){
     {
         try {
             const target = rows[0].target;
-            axios.post(target,{ id : guildId}).catch((error)=>{
+            axios.post(`${target}/guild-update`,{ id : guildId}).catch((error)=>{
                 utils.log(error.message)
             }); 
         } catch (error) {
@@ -256,8 +260,9 @@ async function getUser(request, response) {
 
 
     if (Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY && session.user && session.user.discordInfo) {
-        response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
-        return;
+        updateSession(sessionId);
+        return response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
+        
     }
 
     const headers = {
@@ -320,7 +325,10 @@ async function getGuilds(request, response) {
 
     if (!session) return response.send({ error: EXPIRED_SESSION_MESSAGE });
     
-    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds ) return response.send(session.guilds);
+    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds ){
+        updateSession(sessionId);
+        return response.send(session.guilds);
+    } 
 
     const headers = {
         'Authorization': `Bearer ${session.token}`
@@ -388,7 +396,10 @@ async function getGuild(request, response) {
 
     if (request.body["guildId"] === undefined) return response.send({ error: "No guild Id was sent" });
 
-    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds && session.getGuilds[`${guildId}`]) return response.send(session.guilds[`${guildId}`]);
+    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds && session.getGuilds[`${guildId}`]){
+        updateSession(sessionId);
+        return response.send(session.guilds[`${guildId}`]);
+    } 
 
     const headers = {
         'Authorization': `Bearer ${this.discordApiToken.access_token}`
@@ -424,7 +435,28 @@ async function getGuildSettings(request, response) {
         {
             const guildData = guildSettings[0];
 
-            response.send(guildData);
+
+            try {
+
+                const rawChannels = await botRest.get(Routes.guildChannels(guildId));
+
+                const textChannels = rawChannels.filter((channel => channel.type === 0)).map((channel) => {
+                    return {id : channel.id ,name : channel.name};
+                });
+                
+                const rawRoles = await botRest.get(Routes.guildRoles(guildId));
+
+                const roles = rawRoles.filter(role => role.name !== '@everyone').map((role) => {
+                    return {id : role.id ,name : role.name};
+                });
+
+                response.send({ guild : { channels : textChannels, roles : roles} , settings : guildData});
+
+            } catch (error) {
+                response.send({error : error.message});
+                console.log(error);
+            }
+            
         }
 }
 
@@ -438,15 +470,15 @@ async function updateGuildSettings(request, response) {
 
     if (!session) return response.send({ error: EXPIRED_SESSION_MESSAGE });
 
-    const guildId = request.body["guildId"];
+    const guildId = request.body["id"];
 
     if (!guildId) return response.send({ error: "No guild Id was sent" });
 
-    const data = request.body["guildId"];
+    const data = request.body;
 
     if(!data) return response.send({ error: "No Data to update was sent" });
 
-    const guildDatabaseResponse = await db.post(`/tables/guild_settings/rows`,[{ id: guildId , ...data}]).catch(utils.log);
+    const guildDatabaseResponse = await db.post(`/tables/guild_settings/rows`,[data]).catch(utils.log);
 
     response.send({ result : 'success' });
 
@@ -686,6 +718,7 @@ module.exports = {
     getGuilds: getGuilds,
     getGuildSettings: getGuildSettings,
     updateCard: updateCard,
+    updateGuildSettings : updateGuildSettings,
     updateGuildNotifications: updateGuildNotifications,
     updateUserNotifications: updateUserNotifications
 }

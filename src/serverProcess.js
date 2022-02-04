@@ -4,7 +4,6 @@ const express = require('express');
 const utils = require('./utils');
 const compression = require('compression');
 process.env = require('../secretes.json');
-
 const dataBus = require('./dataBus');
 
 
@@ -92,13 +91,15 @@ app.get('/user', async (request, response) => {
 
 // makes a request to the api for the user that was authenticated
 app.get('/guilds', async (request, response) => {
-
     wsm.getGuilds(request, response).catch(utils.log);
-
 });
 
 app.get('/settings/:guildId', async (request, response) => {
     wsm.getGuildSettings(request, response).catch(utils.log);
+});
+
+app.post('/settings', async (request, response) => {
+    wsm.updateGuildSettings(request, response).catch(utils.log);
 });
 
 // used to create a session for the user
