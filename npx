@@ -1,0 +1,1 @@
+~/umeko-js-server/node_modules/node/bin/node ~/umeko-js-server/node_modules/npm/bin/npx-cli.js $@
