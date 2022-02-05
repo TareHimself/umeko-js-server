@@ -510,7 +510,7 @@ async function updateCard(request, response) {
             'customBufferFile': {
                 value: buffer,
                 options: {
-                    filename: `${session.user.discordInfo.id}-${utils.time('-')}.jpg`
+                    filename: `${process.argv.includes('debug') ? 'debug-' : ''}${session.user.discordInfo.id}-${utils.time('-')}.jpg`
                 }
             }
         }
@@ -658,7 +658,7 @@ async function updateUserNotifications(request, response) {
             whereStatement += `id='${id}'${id === data[data.length - 1] ? "" : " OR "}`;
         })
 
-        const getguildSubscriptioznsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
+        const getguildSubscriptio3nsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
 
         const currentSubscriptions = localDb.prepare(getguildSubscriptionsStatement).all();
 
