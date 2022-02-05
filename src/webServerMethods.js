@@ -510,7 +510,7 @@ async function updateCard(request, response) {
             'customBufferFile': {
                 value: buffer,
                 options: {
-                    filename: `user-card-background-${session.user.discordInfo.id}.jpg`
+                    filename: `${session.user.discordInfo.id}-${utils.time('-')}.jpg`
                 }
             }
         }
