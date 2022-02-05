@@ -240,7 +240,13 @@ async function notifyGuildUpdate(guildId){
         try {
             const target = rows[0].target;
             axios.post(`${target}/guild-update`,{ id : guildId}).catch((error)=>{
-                utils.log(error.message)
+
+                try {
+                    localDb.prepare(`DELETE FROM guild_notifications WHERE id='${guildId}'`).run();
+                } catch (error2) {
+                    utils.log(erro2.message)
+                }
+
             }); 
         } catch (error) {
             utils.log(error);
@@ -658,16 +664,22 @@ async function updateUserNotifications(request, response) {
             whereStatement += `id='${id}'${id === data[data.length - 1] ? "" : " OR "}`;
         })
 
-        const getguildSubscriptioznsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
 
-        const currentSubscriptions = localDb.prepare(getguildSubscriptionsStatement).all();
+        const getUserSubscriptionsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
+
+        const currentSubscriptions = localDb.prepare(getUserSubscriptionsStatement).all();
 
         const subscriptionsAsNormalArray = currentSubscriptions.map(row => row.id);
 
         const usersToInsert = data.filter(user => !subscriptionsAsNormalArray.includes(user));
 
         usersToInsert.forEach(function (user) {
-            localDb.prepare(`INSERT INTO user_notifications VALUES ('${user}','${target}')`).run();
+            try {
+                localDb.prepare(`INSERT INTO user_notifications VALUES ('${user}','${target}')`).run();
+            } catch (error) {
+                console.log(error);
+            }
+            
         })
 
         currentSubscriptions.forEach(function (row) {
