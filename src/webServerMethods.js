@@ -668,10 +668,6 @@ async function updateUserNotifications(request, response) {
             whereStatement += `id='${id}'${id === data[data.length - 1] ? "" : " OR "}`;
         })
 
-<<<<<<< HEAD
-=======
-        const getguildSubscriptio3nsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
->>>>>>> a9821fa3ac5e7b2c80a254eefd04be2e1ebc5059
 
         const getUserSubscriptionsStatement = `SELECT * FROM user_notifications ${whereStatement}`;
 
