@@ -464,6 +464,8 @@ async function getGuildSettings(request, response) {
             }
             
         }
+
+        updateSession(sessionId);
 }
 
 async function updateGuildSettings(request, response) {
@@ -489,6 +491,8 @@ async function updateGuildSettings(request, response) {
     response.send({ result : 'success' });
 
     notifyGuildUpdate(guildId);
+
+    updateSession(sessionId);
 }
 
 async function updateCard(request, response) {
@@ -508,7 +512,7 @@ async function updateCard(request, response) {
     if (base64Card) {
         const buffer = Buffer.from(base64Card, "base64");
 
-        const oldBgId = session.user.dbInfo.card_bg_id;
+        const oldBgId = session.user.dbInfo ? session.user.dbInfo.card_bg_id : undefined;
 
         const formData = {
             api_key: process.env.IMAGE_SHACK_API_KEY,
@@ -540,7 +544,7 @@ async function updateCard(request, response) {
             session.user.dbInfo.card_bg_id = data.result.images[0].id;
             session.user.dbInfo.card_bg_url = `https://imagizer.imageshack.com/v2/1000x300q90/${data.result.images[0].server}/${data.result.images[0].filename}`;
 
-            if (oldBgId !== '') {
+            if (oldBgId) {
                 axios.delete(`https://api.imageshack.com/v2/images/${oldBgId}?auth_token=${process.env.IMAGE_SHACK_API_TOKEN}`).catch((error) => {
                     utils.log(error.response.data)
                     utils.log(error.response.data.error);
