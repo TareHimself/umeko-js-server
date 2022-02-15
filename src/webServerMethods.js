@@ -112,7 +112,6 @@ function hasLatestSessionData(sessionId) {
     }
 
     return memoryCache.get(sessionId);
-
 }
 
 function updateSession(sessionId) {
@@ -142,14 +141,15 @@ function destroySession(sessionId, reason) {
 
 async function fetchUserData(sessionId){
     
+    const session = hasLatestSessionData(sessionId);
+
     const headers = {
         'Authorization': `Bearer ${session.token}`
     }
 
     const userDiscordDataResponse = await axios.get("https://discordapp.com/api/oauth2/@me", { headers: headers }).catch((error) => {
-        const responseData = error.response.data;
-        responseData.result = 'error';
-        response.send(responseData);
+        utils.log(error.response.data);    
+        return false;
     })
 
     if (userDiscordDataResponse.data && userDiscordDataResponse.data.user) {
@@ -186,10 +186,12 @@ async function fetchUserData(sessionId){
             session.user.dbInfo.afk_options = new URLSearchParams(session.user.dbInfo.afk_options);
         }
 
-        updateSession(sessionId);
-
-        response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
+        updateSession(sessionId);    
+        
+        return true;
     }
+
+    return false;
 }
 
 async function createSession(request, response) {
@@ -263,50 +265,6 @@ async function getSessionLifetime(request, response) {
     response.send(foundRows[0]);
 }
 
-async function notifyUserUpdate(userId){
-    const rows = localDb.prepare(`SELECT targets FROM user_notifications WHERE id='${userId}'`).all();
-    if(rows.length)
-    {
-        const targets = rows[0].targets.split(',');
-
-        if(targets.length)
-        {
-            targets.forEach(function(target){
-                try {
-                    axios.post(`${target}/user-update`,{ id : userId}).catch((error)=>{
-                        utils.log(error.message)
-                    });
-                } catch (error) {
-                    utils.log(error);
-                }
-                
-            });
-        }
-    }
-}
-
-async function notifyGuildUpdate(guildId){
-    const rows = localDb.prepare(`SELECT target FROM guild_notifications WHERE id='${guildId}'`).all();
-
-    if(rows.length)
-    {
-        try {
-            const target = rows[0].target;
-            axios.post(`${target}/guild-update`,{ id : guildId}).catch((error)=>{
-
-                try {
-                    localDb.prepare(`DELETE FROM guild_notifications WHERE id='${guildId}'`).run();
-                } catch (error2) {
-                    utils.log(erro2.message)
-                }
-
-            }); 
-        } catch (error) {
-            utils.log(error);
-        }  
-    }
-}
-
 async function getUser(request, response) {
 
     const sessionId = request.get('sessionId');
@@ -321,56 +279,15 @@ async function getUser(request, response) {
     if (Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY && session.user && session.user.discordInfo) {
         updateSession(sessionId);
         return response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
-        
     }
 
-    const headers = {
-        'Authorization': `Bearer ${session.token}`
-    }
-
-    const userDiscordDataResponse = await axios.get("https://discordapp.com/api/oauth2/@me", { headers: headers }).catch((error) => {
-        const responseData = error.response.data;
-        responseData.result = 'error';
-        response.send(responseData);
-    })
-
-    if (userDiscordDataResponse.data && userDiscordDataResponse.data.user) {
-
-        session.user.discordInfo = userDiscordDataResponse.data.user;
-
-        const userDatabaseResponse = await db.get(`/tables/user_settings/rows?data=${session.user.discordInfo.id}`).catch(utils.log);
-        
-        const userSettings = userDatabaseResponse.data;
-
-        if (!userSettings.length) {
-            const userSetting = {
-                id: userDiscordDataResponse.data.user.id,
-                color: '#87ceeb',
-                card_bg_id: '',
-                card_bg_url: '',
-                afk_message: 'Im sleeping or something',
-                afk_options: ''
-            }
-
-            await db.post('/tables/user_settings/rows', [userSetting]).catch(utils.log);
-
-            session.user.dbInfo = {
-                id: userDiscordDataResponse.data.user.id,
-                color: '#87ceeb',
-                card_bg_id: '',
-                card_bg_url: '',
-                afk_message: 'Im sleeping or something',
-                afk_options: new URLSearchParams()
-            }
-        }
-        else {
-            session.user.dbInfo = userSettings[0];
-            session.user.dbInfo.afk_options = new URLSearchParams(session.user.dbInfo.afk_options);
-        }
-
-        updateSession(sessionId);
-
+    if(await fetchUserData(sessionId))
+    {
         response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
+    }
+    else
+    {
+        response.send({error : 'unknown error fetching user data'})
     }
 }
 
@@ -561,6 +478,8 @@ async function updateCard(request, response) {
     const payload = request.body;
 
     const base64Card = payload.background;
+
+    if(!session.user || !session.user.discordInfo || !session.user.dbInfo) await fetchUserData(sessionId);
 
     if (base64Card) {
         const buffer = Buffer.from(base64Card, "base64");
@@ -775,6 +694,55 @@ async function updateUserNotifications(request, response) {
         response.send({ result: 'success', removed : removedCount });
     }
 }
+
+async function notifyUserUpdate(userId){
+    const rows = localDb.prepare(`SELECT targets FROM user_notifications WHERE id='${userId}'`).all();
+    if(rows.length)
+    {
+        const targets = rows[0].targets.split(',');
+
+        if(targets.length)
+        {
+            targets.forEach(function(target){
+                try {
+                    axios.post(`${target}/user-update`,{ id : userId}).catch((error)=>{
+                        try {
+                            localDb.prepare(`DELETE FROM user_notifications WHERE id='${userId}'`).run();
+                        } catch (error2) {
+                            utils.log(erro2.message)
+                        }
+                    });
+                } catch (error) {
+                    utils.log(error);
+                }
+                
+            });
+        }
+    }
+}
+
+async function notifyGuildUpdate(guildId){
+    const rows = localDb.prepare(`SELECT target FROM guild_notifications WHERE id='${guildId}'`).all();
+
+    if(rows.length)
+    {
+        try {
+            const target = rows[0].target;
+            axios.post(`${target}/guild-update`,{ id : guildId}).catch((error)=>{
+
+                try {
+                    localDb.prepare(`DELETE FROM guild_notifications WHERE id='${guildId}'`).run();
+                } catch (error2) {
+                    utils.log(erro2.message)
+                }
+
+            }); 
+        } catch (error) {
+            utils.log(error);
+        }  
+    }
+}
+
 
 module.exports = {
     getServerInfo : getServerInfo,
