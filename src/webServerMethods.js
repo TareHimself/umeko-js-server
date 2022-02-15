@@ -53,7 +53,7 @@ function deleteExpiredSessions() {
     sessionIds.forEach(function (row) {
         if (memoryCache.get(row.session_id)) {
             delete memoryCache.get(row.session_id);
-        }w
+        }wa
     });
 }
 
