@@ -53,7 +53,7 @@ function deleteExpiredSessions() {
     sessionIds.forEach(function (row) {
         if (memoryCache.get(row.session_id)) {
             delete memoryCache.get(row.session_id);
-        }
+        }w
     });
 }
 
@@ -85,6 +85,7 @@ function hasLatestSessionData(sessionId) {
     deleteExpiredSessions();
 
     if (!memoryCache.get(sessionId)) {
+
         if (doesSessionExist(sessionId)) {
             const fetchStatement = `SELECT * FROM sessions WHERE session_id ='${sessionId}'`;
             const newSessionData = localDb.prepare(fetchStatement).all()[0];
@@ -98,6 +99,7 @@ function hasLatestSessionData(sessionId) {
     }
 
     const checkStatement = `SELECT last_update_time FROM sessions WHERE session_id ='${sessionId}'`;
+
     const currentSessionData = localDb.prepare(checkStatement).all()[0];
 
     if (currentSessionData.last_update_time < memoryCache.get(sessionId).last_update_time) {
@@ -123,7 +125,6 @@ function updateSession(sessionId) {
 
         const updateStatement = `UPDATE sessions SET session_data='${sessionData}', last_update_time=${currentTime}, expire_at=${currentTime + SESSION_TIMEOUT} WHERE session_id='${sessionId}'`;
 
-
         localDb.prepare(updateStatement).run();
     }
 }
@@ -137,6 +138,58 @@ function destroySession(sessionId, reason) {
 
     localDb.prepare(deleteStatement).run();
     if (memoryCache.get(sessionId)) delete memoryCache.get(sessionId);
+}
+
+async function fetchUserData(sessionId){
+    
+    const headers = {
+        'Authorization': `Bearer ${session.token}`
+    }
+
+    const userDiscordDataResponse = await axios.get("https://discordapp.com/api/oauth2/@me", { headers: headers }).catch((error) => {
+        const responseData = error.response.data;
+        responseData.result = 'error';
+        response.send(responseData);
+    })
+
+    if (userDiscordDataResponse.data && userDiscordDataResponse.data.user) {
+
+        session.user.discordInfo = userDiscordDataResponse.data.user;
+
+        const userDatabaseResponse = await db.get(`/tables/user_settings/rows?data=${session.user.discordInfo.id}`).catch(utils.log);
+        
+        const userSettings = userDatabaseResponse.data;
+
+        if (!userSettings.length) {
+            const userSetting = {
+                id: userDiscordDataResponse.data.user.id,
+                color: '#87ceeb',
+                card_bg_id: '',
+                card_bg_url: '',
+                afk_message: 'Im sleeping or something',
+                afk_options: ''
+            }
+
+            await db.post('/tables/user_settings/rows', [userSetting]).catch(utils.log);
+
+            session.user.dbInfo = {
+                id: userDiscordDataResponse.data.user.id,
+                color: '#87ceeb',
+                card_bg_id: '',
+                card_bg_url: '',
+                afk_message: 'Im sleeping or something',
+                afk_options: new URLSearchParams()
+            }
+        }
+        else {
+            session.user.dbInfo = userSettings[0];
+            session.user.dbInfo.afk_options = new URLSearchParams(session.user.dbInfo.afk_options);
+        }
+
+        updateSession(sessionId);
+
+        response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
+    }
 }
 
 async function createSession(request, response) {
