@@ -18,11 +18,11 @@ const localDb = require('better-sqlite3')('./src/sessionStore.db', { fileMustExi
 
 
 // make them globally accessible
-Object.assign(dataBus, { localDb : localDb, memoryCache: memoryCache });
+Object.assign(dataBus, { localDb: localDb, memoryCache: memoryCache });
 
 const sync = new (require('heatsync'));
 
-sync.events.on('error',error=>{
+sync.events.on('error', error => {
     utils.log(error);
 })
 
@@ -35,7 +35,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cors());
 
-const port = process.argv.includes('debug') ? 49154 : 8080;
+const port = process.argv.includes('debug') ? 3002 : 8080;
 
 
 
@@ -44,7 +44,7 @@ app.get('/', async (request, response) => {
     wsm.getServerInfo(request, response).catch(utils.log);
 });
 
-app.get('/ping',async (request, response) => {
+app.get('/ping', async (request, response) => {
     wsm.getServerPing(request, response).catch(utils.log);
 });
 
@@ -61,12 +61,12 @@ app.post('/destroy-session', async (request, response) => {
 
 // used to create a session for the user
 app.post('/notifications-guild', async (request, response) => {
-    wsm.updateGuildNotifications(request,response).catch(utils.log);
+    wsm.updateGuildNotifications(request, response).catch(utils.log);
 });
 
 // used to create a session for the user
 app.post('/notifications-user', async (request, response) => {
-    wsm.updateUserNotifications(request,response).catch(utils.log);
+    wsm.updateUserNotifications(request, response).catch(utils.log);
 });
 
 app.use(async function (request, response, next) {
@@ -112,4 +112,4 @@ app.listen(port, () => {
     utils.log(`Master HTTP Server listening at http://localhost:${port}/`)
 });
 
-sync.events.on('error',utils.log);
+sync.events.on('error', utils.log);

@@ -5,7 +5,7 @@ const uuid = require('uuid');
 var rp = require('request-promise');
 const fs = require("fs");
 const { Routes } = require('discord-api-types/v9');
-const { botRest } = require('./dataBus');
+const discord = require('./discord');
 
 
 
@@ -28,11 +28,11 @@ const validOPs = ['add', 'remove']
 async function getServerInfo(request, response) {
     deleteExpiredSessions();
     const sessionsCount = localDb.prepare('SELECT session_id FROM sessions').all();
-    response.send({id : 'umeko-js-server' , sessions_count : sessionsCount.length});
+    response.send({ id: 'umeko-js-server', sessions_count: sessionsCount.length });
 }
 
 async function getServerPing(request, response) {
-    response.send({ recieved_at : Date.now() });
+    response.send({ recieved_at: Date.now() });
 }
 
 function deleteExpiredSessions() {
@@ -90,7 +90,7 @@ function hasLatestSessionData(sessionId) {
             const fetchStatement = `SELECT * FROM sessions WHERE session_id ='${sessionId}'`;
             const newSessionData = localDb.prepare(fetchStatement).all()[0];
 
-            memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data,"base64").toString()));
+            memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data, "base64").toString()));
             utils.log(`Loaded Session ${sessionId} From Storage`);
             return memoryCache.get(sessionId);
         }
@@ -106,7 +106,7 @@ function hasLatestSessionData(sessionId) {
         const fetchStatement = `SELECT * FROM sessions WHERE session_id ='${sessionId}'`;
         const newSessionData = localDb.prepare(fetchStatement).all()[0];
 
-        memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data,"base64").toString()));
+        memoryCache.set(sessionId, JSON.parse(Buffer.from(newSessionData.session_data, "base64").toString()));
         memoryCache.get(sessionId).last_update_time = currentSessionData.last_update_time;
         utils.log(`Refreshed Session ${sessionId}`);
     }
@@ -139,8 +139,8 @@ function destroySession(sessionId, reason) {
     if (memoryCache.get(sessionId)) delete memoryCache.get(sessionId);
 }
 
-async function fetchUserData(sessionId){
-    
+async function fetchUserData(sessionId) {
+
     const session = hasLatestSessionData(sessionId);
 
     const headers = {
@@ -148,7 +148,7 @@ async function fetchUserData(sessionId){
     }
 
     const userDiscordDataResponse = await axios.get("https://discordapp.com/api/oauth2/@me", { headers: headers }).catch((error) => {
-        utils.log(error.response.data);    
+        utils.log(error.response.data);
         return false;
     })
 
@@ -156,42 +156,35 @@ async function fetchUserData(sessionId){
 
         session.user.discordInfo = userDiscordDataResponse.data.user;
 
-        const userDatabaseResponse = await db.get(`/tables/user_settings/rows?data=${session.user.discordInfo.id}`).catch(utils.log);
-        
+        const userDatabaseResponse = await db.get(`/users?q=${session.user.discordInfo.id}`).catch(utils.log);
+
         const userSettings = userDatabaseResponse.data;
 
         if (!userSettings.length) {
             const userSetting = {
                 id: userDiscordDataResponse.data.user.id,
                 color: '#87ceeb',
-                card_bg_id: '',
                 card_bg_url: '',
-                afk_message: 'Im sleeping or something',
-                afk_options: ''
+                card_opacity: 0.8,
+                options: '',
             }
 
-            await db.post('/tables/user_settings/rows', [userSetting]).catch(utils.log);
+            await db.put('/users', [userSetting]).catch(utils.log);
 
-            session.user.dbInfo = {
-                id: userDiscordDataResponse.data.user.id,
-                color: '#87ceeb',
-                card_bg_id: '',
-                card_bg_url: '',
-                afk_message: 'Im sleeping or something',
-                afk_options: new URLSearchParams()
-            }
+            session.user.dbInfo = { ...userSetting, options: new URLSearchParams() }
+
+            return true
         }
         else {
-            session.user.dbInfo = userSettings[0];
-            session.user.dbInfo.afk_options = new URLSearchParams(session.user.dbInfo.afk_options);
+            session.user.dbInfo = { ...userSettings[0], options: new URLSearchParams(userSettings[0].options) }
+
+            updateSession(sessionId);
+
+            return true;
         }
 
-        updateSession(sessionId);    
-        
-        return true;
+        return false;
     }
-
-    return false;
 }
 
 async function createSession(request, response) {
@@ -281,13 +274,11 @@ async function getUser(request, response) {
         return response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
     }
 
-    if(await fetchUserData(sessionId))
-    {
+    if (await fetchUserData(sessionId)) {
         response.send({ ...session.user.dbInfo, ...session.user.discordInfo });
     }
-    else
-    {
-        response.send({error : 'unknown error fetching user data'})
+    else {
+        response.send({ error: 'unknown error fetching user data' })
     }
 }
 
@@ -300,25 +291,24 @@ async function getGuilds(request, response) {
     const session = hasLatestSessionData(sessionId);
 
     if (!session) return response.send({ error: EXPIRED_SESSION_MESSAGE });
-    
-    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds ){
+
+    if (Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY && session.guilds) {
         updateSession(sessionId);
         return response.send(session.guilds);
-    } 
+    }
 
     const headers = {
         'Authorization': `Bearer ${session.token}`
     }
 
-    const discordGuildsResponse = await axios.get("https://discordapp.com/api/users/@me/guilds", { headers: headers }).catch((error)=>{
-        if(session.guilds)
-        {
+    const discordGuildsResponse = await axios.get("https://discordapp.com/api/users/@me/guilds", { headers: headers }).catch((error) => {
+        if (session.guilds) {
             response.send(session.guilds);
         }
         utils.log(error.message);
     })
 
-    if(!discordGuildsResponse || !discordGuildsResponse.data) return response.send({error : 'recieved invalid response from discord api'});
+    if (!discordGuildsResponse || !discordGuildsResponse.data) return response.send({ error: 'recieved invalid response from discord api' });
 
     const discordGuilds = discordGuildsResponse.data;
 
@@ -333,26 +323,24 @@ async function getGuilds(request, response) {
 
     const guildsToFetch = guildsWithRights.map(guild => guild.id)
 
-    const databaseGuildsResponse = await db.get(`/tables/guild_settings/rows?data=${guildsToFetch.join(',')}`).catch(utils.log);
+    const databaseGuildsResponse = await db.get(`/guilds?q=${guildsToFetch.join(',')}`).catch(utils.log);
 
-    if(!databaseGuildsResponse.data) return response.send({error : 'recieved invalid response from database'});
+    if (!databaseGuildsResponse.data) return response.send({ error: 'recieved invalid response from database' });
 
     const databaseGuilds = databaseGuildsResponse.data;
 
-    if(databaseGuilds.length)
-    {
+    if (databaseGuilds.length) {
         const databaseGuildsIds = databaseGuilds.map(guild => guild.id);
 
-    guildsWithRights.sort(function(guildA,guildB)
-    {
-        guildA.hasBot = databaseGuildsIds.includes(guildA.id);
+        guildsWithRights.sort(function (guildA, guildB) {
+            guildA.hasBot = databaseGuildsIds.includes(guildA.id);
 
-        guildB.hasBot = databaseGuildsIds.includes(guildB.id);
+            guildB.hasBot = databaseGuildsIds.includes(guildB.id);
 
-        return (guildA.hasBot === guildB.hasBot)? 0 : guildA.hasBot ? -1 : 1;
-    })
+            return (guildA.hasBot === guildB.hasBot) ? 0 : guildA.hasBot ? -1 : 1;
+        })
     }
-    
+
     response.send(guildsWithRights);
 
     session.guilds = guildsWithRights;
@@ -372,10 +360,10 @@ async function getGuild(request, response) {
 
     if (request.body["guildId"] === undefined) return response.send({ error: "No guild Id was sent" });
 
-    if(Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY  && session.guilds && session.getGuilds[`${guildId}`]){
+    if (Math.random() < MAKE_NEW_API_REQUEST_PROBABILITY && session.guilds && session.getGuilds[`${guildId}`]) {
         updateSession(sessionId);
         return response.send(session.guilds[`${guildId}`]);
-    } 
+    }
 
     const headers = {
         'Authorization': `Bearer ${this.discordApiToken.access_token}`
@@ -383,7 +371,7 @@ async function getGuild(request, response) {
 
     const guildId = request.body["guildId"];
 
-    response.send({ error : 'Endpoint not ready' })
+    response.send({ error: 'Endpoint not ready' })
 }
 
 async function getGuildSettings(request, response) {
@@ -400,42 +388,41 @@ async function getGuildSettings(request, response) {
 
     if (!guildId) return response.send({ error: "No guild Id was sent" });
 
-    const guildDatabaseResponse = await db.get(`/tables/guild_settings/rows?data=${guildId}`).catch(utils.log);
+    const guildDatabaseResponse = await db.get(`/guilds?q=${guildId}`).catch(utils.log);
 
-        const guildSettings = guildDatabaseResponse.data;
+    const guildSettings = guildDatabaseResponse.data;
 
-        if (!guildSettings.length) {
-            response.send({ error : 'guildDoesNotExist' });
-        }
-        else
-        {
-            const guildData = guildSettings[0];
+    if (!guildSettings.length) {
+        response.send({ error: 'guildDoesNotExist' });
+    }
+    else {
+        const guildData = guildSettings[0];
 
 
-            try {
+        try {
 
-                const rawChannels = await botRest.get(Routes.guildChannels(guildId));
+            const rawChannels = (await discord.get(`/guilds/${guildId}/channels`)).data;
 
-                const textChannels = rawChannels.filter((channel => channel.type === 0)).map((channel) => {
-                    return {id : channel.id ,name : channel.name};
-                });
-                
-                const rawRoles = await botRest.get(Routes.guildRoles(guildId));
+            const textChannels = rawChannels.filter((channel => channel.type === 0)).map((channel) => {
+                return { id: channel.id, name: channel.name };
+            });
 
-                const roles = rawRoles.filter(role => role.name !== '@everyone').map((role) => {
-                    return {id : role.id ,name : role.name};
-                });
+            const rawRoles = (await discord.get(`/guilds/${guildId}/roles`)).data;
 
-                response.send({ guild : { channels : textChannels, roles : roles} , settings : guildData});
+            const roles = rawRoles.filter(role => role.name !== '@everyone').map((role) => {
+                return { id: role.id, name: role.name };
+            });
 
-            } catch (error) {
-                response.send({error : error.message});
-                console.log(error);
-            }
-            
+            response.send({ guild: { channels: textChannels, roles: roles }, settings: guildData });
+
+        } catch (error) {
+            response.send({ error: error.message });
+            console.log(error);
         }
 
-        updateSession(sessionId);
+    }
+
+    updateSession(sessionId);
 }
 
 async function updateGuildSettings(request, response) {
@@ -454,11 +441,11 @@ async function updateGuildSettings(request, response) {
 
     const data = request.body;
 
-    if(!data) return response.send({ error: "No Data to update was sent" });
+    if (!data) return response.send({ error: "No Data to update was sent" });
 
-    const guildDatabaseResponse = await db.post(`/tables/guild_settings/rows`,[data]).catch(utils.log);
+    const guildDatabaseResponse = await db.post(`/guilds`, [data]).catch(utils.log);
 
-    response.send({ result : 'success' });
+    response.send({ result: 'success' });
 
     notifyGuildUpdate(guildId);
 
@@ -479,50 +466,21 @@ async function updateCard(request, response) {
 
     const base64Card = payload.background;
 
-    if(!session.user || !session.user.discordInfo || !session.user.dbInfo) await fetchUserData(sessionId);
+    if (!session.user || !session.user.discordInfo || !session.user.dbInfo) await fetchUserData(sessionId);
 
     if (base64Card) {
         const buffer = Buffer.from(base64Card, "base64");
 
-        const oldBgId = session.user.dbInfo ? session.user.dbInfo.card_bg_id : undefined;
+        const deletionUrl = session.user.dbInfo?.card_bg_url?.split('|')[1];
 
-        const formData = {
-            api_key: process.env.IMAGE_SHACK_API_KEY,
-            album: 'umeko-rank-cards',
-            'customBufferFile': {
-                value: buffer,
-                options: {
-                    filename: `${process.argv.includes('debug') ? 'debug-' : ''}${session.user.discordInfo.id}-${utils.time('-')}.jpg`
-                }
-            }
-        }
+        if (deletionUrl && deletionUrl.length) await axios.get(deletionUrl).catch(utils.log);
 
-        const options = {
-            method: 'POST',
-            uri: 'https://api.imageshack.com/v2/images',
-            formData: formData,
-            headers: {
-                /* 'content-type': 'multipart/form-data' */ // Is set automatically
-            }
-        };
+        const form = new FormData();
+        form.append('file', buffer, `${process.argv.includes('debug') ? 'debug-' : ''}${session.user.discordInfo.id}-${utils.time('-')}.jpg`);
+        form.append('key', process.env.CGAS_KEY);
+        const { url, deletion_url } = (await axios.post('https://catgirlsare.sexy/api/upload', form, { headers: form.getHeaders() }))?.data
 
-        const imageUploadResponse = await rp(options).catch((error) => {
-            utils.log(err);
-            response.send({ error: 'error saving image' });
-        });
-
-        if (imageUploadResponse) {
-            const data = JSON.parse(imageUploadResponse);
-            session.user.dbInfo.card_bg_id = data.result.images[0].id;
-            session.user.dbInfo.card_bg_url = `https://imagizer.imageshack.com/v2/1000x300q90/${data.result.images[0].server}/${data.result.images[0].filename}`;
-
-            if (oldBgId) {
-                axios.delete(`https://api.imageshack.com/v2/images/${oldBgId}?auth_token=${process.env.IMAGE_SHACK_API_TOKEN}`).catch((error) => {
-                    utils.log(error.response.data)
-                    utils.log(error.response.data.error);
-                });
-            }
-        }
+        session.user.dbInfo.card_bg_url = `${url}|${deletion_url}`
     }
 
     session.user.dbInfo.color = payload.color;
@@ -532,12 +490,12 @@ async function updateCard(request, response) {
         id: session.user.discordInfo.id,
         color: session.user.dbInfo.color,
         card_opacity: session.user.dbInfo.card_opacity,
-        card_bg_id: session.user.dbInfo.card_bg_id,
         card_bg_url: session.user.dbInfo.card_bg_url
     }
 
-    await db.post(`/tables/user_settings/rows`, [dbPayload]).catch(utils.log);
+    await db.post(`/users`, [dbPayload]).catch(utils.log);
 
+    utils.log(session.user.dbInfo.card_bg_url)
     response.send({ url: session.user.dbInfo.card_bg_url });
 
     notifyUserUpdate(session.user.discordInfo.id);
@@ -609,7 +567,7 @@ async function updateGuildNotifications(request, response) {
             localDb.prepare(`DELETE FROM guild_notifications WHERE id='${row.id}'`).run();
         });
 
-        response.send({ result: 'success', removed : removedCount });
+        response.send({ result: 'success', removed: removedCount });
     }
 
 }
@@ -655,7 +613,7 @@ async function updateUserNotifications(request, response) {
             } catch (error) {
                 console.log(error);
             }
-            
+
         })
 
         currentSubscriptions.forEach(function (row) {
@@ -686,26 +644,24 @@ async function updateUserNotifications(request, response) {
             const targets = row.targets.split(',');
             if (targets.includes(target)) {
                 removedCount++;
-                targets.splice(targets.indexOf(target),1);
+                targets.splice(targets.indexOf(target), 1);
                 localDb.prepare(`UPDATE user_notifications SET targets='${targets.join(',')}' WHERE id='${row.id}'`).run();
             }
         });
 
-        response.send({ result: 'success', removed : removedCount });
+        response.send({ result: 'success', removed: removedCount });
     }
 }
 
-async function notifyUserUpdate(userId){
+async function notifyUserUpdate(userId) {
     const rows = localDb.prepare(`SELECT targets FROM user_notifications WHERE id='${userId}'`).all();
-    if(rows.length)
-    {
+    if (rows.length) {
         const targets = rows[0].targets.split(',');
 
-        if(targets.length)
-        {
-            targets.forEach(function(target){
+        if (targets.length) {
+            targets.forEach(function (target) {
                 try {
-                    axios.post(`${target}/user-update`,{ id : userId}).catch((error)=>{
+                    axios.post(`${target}/user-update`, { id: userId }).catch((error) => {
                         try {
                             localDb.prepare(`DELETE FROM user_notifications WHERE id='${userId}'`).run();
                         } catch (error2) {
@@ -715,20 +671,20 @@ async function notifyUserUpdate(userId){
                 } catch (error) {
                     utils.log(error);
                 }
-                
+
             });
         }
     }
 }
 
-async function notifyGuildUpdate(guildId){
+async function notifyGuildUpdate(guildId) {
     const rows = localDb.prepare(`SELECT target FROM guild_notifications WHERE id='${guildId}'`).all();
 
-    if(rows.length)
-    {
+    if (rows.length) {
         try {
             const target = rows[0].target;
-            axios.post(`${target}/guild-update`,{ id : guildId}).catch((error)=>{
+            utils.log(target)
+            axios.post(`${target}/guild-update`, { id: guildId }).catch((error) => {
 
                 try {
                     localDb.prepare(`DELETE FROM guild_notifications WHERE id='${guildId}'`).run();
@@ -736,17 +692,17 @@ async function notifyGuildUpdate(guildId){
                     utils.log(erro2.message)
                 }
 
-            }); 
+            });
         } catch (error) {
             utils.log(error);
-        }  
+        }
     }
 }
 
 
 module.exports = {
-    getServerInfo : getServerInfo,
-    getServerPing : getServerPing,
+    getServerInfo: getServerInfo,
+    getServerPing: getServerPing,
     doesSessionExist: doesSessionExist,
     createSession: createSession,
     destroySession: destroySession,
@@ -755,7 +711,7 @@ module.exports = {
     getGuilds: getGuilds,
     getGuildSettings: getGuildSettings,
     updateCard: updateCard,
-    updateGuildSettings : updateGuildSettings,
+    updateGuildSettings: updateGuildSettings,
     updateGuildNotifications: updateGuildNotifications,
     updateUserNotifications: updateUserNotifications
 }
