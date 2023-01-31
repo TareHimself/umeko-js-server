@@ -14,3 +14,22 @@ export interface IUserData {
     opts: string;
     flags: number;
 }
+
+export interface IDatabaseResponse<T = any> {
+    data: T | string;
+    error: boolean;
+}
+
+export interface IUserSession {
+    id: string;
+    user: string;
+    disc_tok: string;
+    disc_tok_exp: number;
+    disc_tok_refresh: string;
+    expire_at: number;
+}
+
+export interface ISubscriptionPayload {
+    url: string;
+    ids: string[]
+}

@@ -1,7 +1,11 @@
 {
   "scripts": {
-    "start": "node ./src/index.js --trace-sync-io",
-    "reset": "node ./resetDatabase.js"
+    "start": "node ./dist/index.js",
+    "debug": "node ./dist/index.js --no-cache --no-cluster --debug",
+    "build": "npm run clean && npx tsc",
+    "watch": "npm run clean && npx tsc --watch",
+    "pretty": "npx prettier --write .",
+    "clean": "node ./scripts/clean.js"
   },
   "dependencies": {
     "@discordjs/rest": "^0.3.0",
