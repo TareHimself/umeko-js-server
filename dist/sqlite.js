@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getGuildWebhooks = exports.getUserWebhooks = exports.getSession = void 0;
+exports.tInsertSession = exports.tInsertCachedGuildData = exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getCachedGuildData = exports.getGuildWebhooks = exports.getUserWebhooks = exports.getSessionFromToken = exports.getSession = exports.TimeToInteger = exports.pad = void 0;
 const path_1 = __importDefault(require("path"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const cluster_1 = __importDefault(require("cluster"));
@@ -35,16 +35,25 @@ const DATABASE_DIR = path_1.default.join(process.cwd(), 'db');
 if (!fs.existsSync(DATABASE_DIR)) {
     fs.mkdirSync(DATABASE_DIR, { recursive: true });
 }
+function pad(number) {
+    return number < 10 ? `0${number}` : `${number}`;
+}
+exports.pad = pad;
+function TimeToInteger(date) {
+    return parseInt(`${date.getUTCFullYear()}${pad(date.getUTCMonth())}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`, 10);
+}
+exports.TimeToInteger = TimeToInteger;
 const db = (0, better_sqlite3_1.default)(path_1.default.join(DATABASE_DIR, 'persistent.db'));
 if (cluster_1.default.isPrimary) {
     const TABLE_STATEMENTS = [
         `
     CREATE TABLE IF NOT EXISTS sessions(
         id TEXT PRIMARY KEY,
-        user TEXT NOT NULL
-        discord_token STRING NOT NULL,
-        discord_token_expire_at INTEGER NOT NULL,
-        discord_token_refresh TEXT NOT NULL,
+        user TEXT NOT NULL,
+        avatar TEXT NOT NULL,
+        nickname TEXT NOT NULL,
+        token STRING NOT NULL,
+        refresh TEXT NOT NULL,
         expire_at INTEGER NOT NULL
     ) WITHOUT ROWID;
     `,
@@ -61,8 +70,15 @@ if (cluster_1.default.isPrimary) {
     ) WITHOUT ROWID;
     `,
         `
+    CREATE TABLE IF NOT EXISTS guild_cache(
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        ttl INTEGER DEFAULT 0
+    ) WITHOUT ROWID;
+    `,
+        `
     CREATE INDEX IF NOT EXISTS idx_sessions
-    ON sessions (user,guild);
+    ON sessions (id,user,token);
     `
     ];
     db.pragma("journal_mode = WAL");
@@ -87,14 +103,22 @@ if (cluster_1.default.isPrimary) {
     }).immediate(TABLE_STATEMENTS);
 }
 const getSessionStatement = db.prepare('SELECT * FROM sessions WHERE id=@id');
+const getSessionFromTokenStatement = db.prepare('SELECT * FROM sessions WHERE token=@token');
 const getUserWebhooksStatement = db.prepare('SELECT url FROM user_hooks WHERE id=@id');
 const getGuildWebhooksStatement = db.prepare('SELECT url FROM guild_hooks WHERE id=@id');
+const getGuildDataCacheStatement = db.prepare('SELECT data FROM guild_cache WHERE id=@id');
+const insertSessionStatement = db.prepare('INSERT OR REPLACE INTO sessions VALUES (@id,@user,@avatar,@nickname,@token,@refresh,@expire_at)');
 const insertUserWebhookStatement = db.prepare('INSERT OR REPLACE INTO user_hooks VALUES (@id,@url)');
 const insertGuildWebhookStatement = db.prepare('INSERT OR REPLACE INTO guild_hooks VALUES (@id,@url)');
+const insertGuildDataCache = db.prepare('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)');
 function getSession(sessionId) {
     return getSessionStatement.all({ id: sessionId })[0];
 }
 exports.getSession = getSession;
+function getSessionFromToken(token) {
+    return getSessionFromTokenStatement.all({ token: token })[0];
+}
+exports.getSessionFromToken = getSessionFromToken;
 function getUserWebhooks(user) {
     return getUserWebhooksStatement.all({ id: user });
 }
@@ -103,6 +127,10 @@ function getGuildWebhooks(guild) {
     return getGuildWebhooksStatement.all({ id: guild });
 }
 exports.getGuildWebhooks = getGuildWebhooks;
+function getCachedGuildData(guild) {
+    return getGuildDataCacheStatement.all({ id: guild });
+}
+exports.getCachedGuildData = getCachedGuildData;
 const tInsertUsersWebhook = db.transaction((target, ids) => {
     for (let i = 0; i < ids.length; i++) {
         insertUserWebhookStatement.run({ id: ids[i], url: target });
@@ -115,3 +143,11 @@ const tInsertGuildsWebhook = db.transaction((target, ids) => {
     }
 });
 exports.tInsertGuildsWebhook = tInsertGuildsWebhook;
+const tInsertSession = db.transaction((session) => {
+    insertSessionStatement.run(session);
+});
+exports.tInsertSession = tInsertSession;
+const tInsertCachedGuildData = db.transaction((guild, data) => {
+    insertGuildDataCache.run({ id: guild, data: JSON.stringify(data), ttl: TimeToInteger(new Date()) });
+});
+exports.tInsertCachedGuildData = tInsertCachedGuildData;

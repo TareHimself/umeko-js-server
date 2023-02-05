@@ -11,7 +11,7 @@ export function log(...data) {
 export interface ICardUpdate {
     color: string;
     opacity: number;
-    fileAsBase64: string;
+    background: string;
 }
 
 export function getTimeAsInt(): number {
