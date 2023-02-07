@@ -8,9 +8,9 @@ import { CatGirlsAreSexyRest, DatabaseRest, DiscordRest, getDatabaseUser } from 
 import { IGuildFetchResponse, IGuildMeta, ISubscriptionPayload, IUserSession, ILoginData } from './types';
 import { buildResponse, getTimeAsInt, ICardUpdate, log } from './utils';
 import { getSession } from './sessions';
-import { getCachedGuildData, getSessionFromToken, getUserWebhooks, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook } from './sqlite';
+import { getCachedGuildData, getSessionFromToken, getUserWebhooks, tDeleteSession, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook } from './sqlite';
 import { url } from 'inspector';
-import { IDatabaseGuildSettings, IDatabaseUserSettings, IUmekoApiResponse } from './framework';
+import { ECardOptsKeys, IDatabaseGuildSettings, IDatabaseUserSettings, IUmekoApiResponse, ObjectValues, OptsParser } from './framework';
 
 const app = express();
 
@@ -65,14 +65,11 @@ app.post('/login', async (req, res) => {
 
                 const userDiscordDataResponse = (await axios.get("https://discordapp.com/api/oauth2/@me", { headers: headers })).data;
 
-
-
                 const dbUser = await getDatabaseUser(userDiscordDataResponse.user.id);
 
                 const existingSession = getSessionFromToken(DiscordResponseData.access_token);
 
                 if (existingSession) {
-                    console.log("Sent existing session")
                     res.send(buildResponse<ILoginData>({ session: existingSession.id, user: existingSession.user, nickname: existingSession.nickname, avatar: existingSession.avatar, card_opts: dbUser.card }))
                     return;
                 }
@@ -89,8 +86,6 @@ app.post('/login', async (req, res) => {
                     expire_at: 0
                 }
 
-                console.log(sessionData)
-
                 tInsertSession.deferred(sessionData);
 
                 res.send(buildResponse<ILoginData>({ session: sessionId, user: sessionData.user, nickname: sessionData.nickname, avatar: sessionData.avatar, card_opts: dbUser.card }))
@@ -106,7 +101,13 @@ app.post('/login', async (req, res) => {
 });
 
 app.get('/:session/logout', async (req, res) => {
-    res.send(buildResponse("Not Implemented", true))
+    try {
+        tDeleteSession(req.params.session)
+        res.send(buildResponse("Logged Out"))
+    } catch (error) {
+        res.send(buildResponse(error.message, true))
+    }
+
 });
 
 app.get('/:session/guilds', async (req, res) => {
@@ -221,7 +222,6 @@ app.post('/:session/user', async (req, res) => {
 });
 
 app.post('/:session/card', async (req, res) => {
-    console.log("Updating Card")
     try {
         const session = getSession(req);
 
@@ -229,25 +229,24 @@ app.post('/:session/card', async (req, res) => {
 
         const base64Card = payload.background;
 
-
         const dbUser = await getDatabaseUser(session.user);
 
-        const cardOptions = new URLSearchParams(dbUser.card);
+        const cardOptions = new OptsParser<ObjectValues<typeof ECardOptsKeys>>(dbUser.card);
 
         if (base64Card) {
 
             const buffer = Buffer.from(base64Card, "base64");
             const fileName = `${process.argv.includes('--debug') ? 'debug-' : ''}${dbUser['id']}.png`;
-            if (cardOptions.has('bg_delete')) {
-                await axios.get(cardOptions.get('bg_delete') as string).catch(log)
+            if (cardOptions.get('delete_url').length > 0) {
+                await axios.get(cardOptions.get('delete_url')).catch(log)
             }
 
             const form = new FormData();
             form.append('file', buffer, fileName);
             form.append('key', process.env.CGAS_KEY);
             const { url, deletion_url } = (await CatGirlsAreSexyRest.post('/upload', form, { headers: form.getHeaders() }))?.data
-            cardOptions.set('bg_delete', deletion_url);
-            cardOptions.set('bg', url);
+            cardOptions.set('delete_url', deletion_url);
+            cardOptions.set('bg_url', url);
         }
 
         cardOptions.set('color', payload.color);
@@ -255,12 +254,14 @@ app.post('/:session/card', async (req, res) => {
 
         const userUpdate: Partial<IDatabaseUserSettings> = {
             id: dbUser.id,
-            card: cardOptions.toString()
+            card: cardOptions.encode()
         }
 
         await DatabaseRest.post(`/users`, [userUpdate]).catch(log);
 
-        res.send(buildResponse(cardOptions.get('bg')!))
+        res.send(buildResponse(cardOptions.encode()))
+
+
 
         notifyUserSettingsChanged(dbUser.id);
     } catch (error) {

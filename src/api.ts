@@ -23,10 +23,10 @@ const CatGirlsAreSexyRest = axios.create({
 export async function getDatabaseUser(userId: string) {
 
     const databaseUserRequest = (await DatabaseRest.get<IUmekoApiResponse<IDatabaseUserSettings[]>>(`/users?ids=${userId}`)).data;
-    if (databaseUserRequest.error || databaseUserRequest.data.length > 0) {
+    if (databaseUserRequest.error || databaseUserRequest.data.length <= 0) {
         const newUser: IDatabaseUserSettings = { ...FrameworkConstants.DEFAULT_USER_SETTINGS, id: userId };
 
-        (await DatabaseRest.post<IUmekoApiResponse<string>>(`/users`, [newUser]))
+        (await DatabaseRest.put<IUmekoApiResponse<string>>(`/users`, [newUser]))
         return newUser;
     }
     else {

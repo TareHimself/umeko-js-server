@@ -104,6 +104,8 @@ const insertUserWebhookStatement = db.prepare<{ id: string, url: string }>('INSE
 const insertGuildWebhookStatement = db.prepare<{ id: string, url: string }>('INSERT OR REPLACE INTO guild_hooks VALUES (@id,@url)')
 const insertGuildDataCache = db.prepare<{ id: string, data: string, ttl: number }>('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)')
 
+const deleteSessionStatement = db.prepare<{ id: string }>('DELETE FROM sessions WHERE id=@id')
+
 export function getSession(sessionId: string) {
 
     return (getSessionStatement.all({ id: sessionId }) as IUserSession[])[0];
@@ -148,11 +150,16 @@ const tInsertCachedGuildData = db.transaction((guild: string, data: object) => {
     insertGuildDataCache.run({ id: guild, data: JSON.stringify(data), ttl: TimeToInteger(new Date()) });
 })
 
+const tDeleteSession = db.transaction((sessionId: string) => {
+    deleteSessionStatement.run({ id: sessionId });
+})
+
 export {
     tInsertUsersWebhook,
     tInsertGuildsWebhook,
     tInsertCachedGuildData,
-    tInsertSession
+    tInsertSession,
+    tDeleteSession,
 }
 
 

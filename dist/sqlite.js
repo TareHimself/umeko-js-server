@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tInsertSession = exports.tInsertCachedGuildData = exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getCachedGuildData = exports.getGuildWebhooks = exports.getUserWebhooks = exports.getSessionFromToken = exports.getSession = exports.TimeToInteger = exports.pad = void 0;
+exports.tDeleteSession = exports.tInsertSession = exports.tInsertCachedGuildData = exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getCachedGuildData = exports.getGuildWebhooks = exports.getUserWebhooks = exports.getSessionFromToken = exports.getSession = exports.TimeToInteger = exports.pad = void 0;
 const path_1 = __importDefault(require("path"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const cluster_1 = __importDefault(require("cluster"));
@@ -111,6 +111,7 @@ const insertSessionStatement = db.prepare('INSERT OR REPLACE INTO sessions VALUE
 const insertUserWebhookStatement = db.prepare('INSERT OR REPLACE INTO user_hooks VALUES (@id,@url)');
 const insertGuildWebhookStatement = db.prepare('INSERT OR REPLACE INTO guild_hooks VALUES (@id,@url)');
 const insertGuildDataCache = db.prepare('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)');
+const deleteSessionStatement = db.prepare('DELETE FROM sessions WHERE id=@id');
 function getSession(sessionId) {
     return getSessionStatement.all({ id: sessionId })[0];
 }
@@ -151,3 +152,7 @@ const tInsertCachedGuildData = db.transaction((guild, data) => {
     insertGuildDataCache.run({ id: guild, data: JSON.stringify(data), ttl: TimeToInteger(new Date()) });
 });
 exports.tInsertCachedGuildData = tInsertCachedGuildData;
+const tDeleteSession = db.transaction((sessionId) => {
+    deleteSessionStatement.run({ id: sessionId });
+});
+exports.tDeleteSession = tDeleteSession;

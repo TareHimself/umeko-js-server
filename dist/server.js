@@ -12,6 +12,7 @@ const api_1 = require("./api");
 const utils_1 = require("./utils");
 const sessions_1 = require("./sessions");
 const sqlite_1 = require("./sqlite");
+const framework_1 = require("./framework");
 const app = (0, express_1.default)();
 app.use(express_1.default.json({ limit: '100mb' }));
 app.use((0, cors_1.default)());
@@ -53,7 +54,6 @@ app.post('/login', async (req, res) => {
             const dbUser = await (0, api_1.getDatabaseUser)(userDiscordDataResponse.user.id);
             const existingSession = (0, sqlite_1.getSessionFromToken)(DiscordResponseData.access_token);
             if (existingSession) {
-                console.log("Sent existing session");
                 res.send((0, utils_1.buildResponse)({ session: existingSession.id, user: existingSession.user, nickname: existingSession.nickname, avatar: existingSession.avatar, card_opts: dbUser.card }));
                 return;
             }
@@ -67,7 +67,6 @@ app.post('/login', async (req, res) => {
                 refresh: DiscordResponseData.refresh_token,
                 expire_at: 0
             };
-            console.log(sessionData);
             sqlite_1.tInsertSession.deferred(sessionData);
             res.send((0, utils_1.buildResponse)({ session: sessionId, user: sessionData.user, nickname: sessionData.nickname, avatar: sessionData.avatar, card_opts: dbUser.card }));
         }, (error) => {
@@ -79,7 +78,13 @@ app.post('/login', async (req, res) => {
     }
 });
 app.get('/:session/logout', async (req, res) => {
-    res.send((0, utils_1.buildResponse)("Not Implemented", true));
+    try {
+        (0, sqlite_1.tDeleteSession)(req.params.session);
+        res.send((0, utils_1.buildResponse)("Logged Out"));
+    }
+    catch (error) {
+        res.send((0, utils_1.buildResponse)(error.message, true));
+    }
 });
 app.get('/:session/guilds', async (req, res) => {
     try {
@@ -164,34 +169,33 @@ app.post('/:session/user', async (req, res) => {
     }
 });
 app.post('/:session/card', async (req, res) => {
-    console.log("Updating Card");
     try {
         const session = (0, sessions_1.getSession)(req);
         const payload = req.body;
         const base64Card = payload.background;
         const dbUser = await (0, api_1.getDatabaseUser)(session.user);
-        const cardOptions = new URLSearchParams(dbUser.card);
+        const cardOptions = new framework_1.OptsParser(dbUser.card);
         if (base64Card) {
             const buffer = Buffer.from(base64Card, "base64");
             const fileName = `${process.argv.includes('--debug') ? 'debug-' : ''}${dbUser['id']}.png`;
-            if (cardOptions.has('bg_delete')) {
-                await axios_1.default.get(cardOptions.get('bg_delete')).catch(utils_1.log);
+            if (cardOptions.get('delete_url').length > 0) {
+                await axios_1.default.get(cardOptions.get('delete_url')).catch(utils_1.log);
             }
             const form = new form_data_1.default();
             form.append('file', buffer, fileName);
             form.append('key', process.env.CGAS_KEY);
             const { url, deletion_url } = (await api_1.CatGirlsAreSexyRest.post('/upload', form, { headers: form.getHeaders() }))?.data;
-            cardOptions.set('bg_delete', deletion_url);
-            cardOptions.set('bg', url);
+            cardOptions.set('delete_url', deletion_url);
+            cardOptions.set('bg_url', url);
         }
         cardOptions.set('color', payload.color);
         cardOptions.set('opacity', payload.opacity.toString());
         const userUpdate = {
             id: dbUser.id,
-            card: cardOptions.toString()
+            card: cardOptions.encode()
         };
         await api_1.DatabaseRest.post(`/users`, [userUpdate]).catch(utils_1.log);
-        res.send((0, utils_1.buildResponse)(cardOptions.get('bg')));
+        res.send((0, utils_1.buildResponse)(cardOptions.encode()));
         notifyUserSettingsChanged(dbUser.id);
     }
     catch (error) {

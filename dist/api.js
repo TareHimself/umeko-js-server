@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CatGirlsAreSexyRest = exports.DatabaseRest = exports.DiscordRest = exports.getDatabaseUser = void 0;
 const axios_1 = __importDefault(require("axios"));
-const constants_1 = __importDefault(require("./constants"));
+const framework_1 = require("./framework");
 const DiscordRest = axios_1.default.create({
     baseURL: "https://discord.com/api/v9",
     headers: {
@@ -26,14 +26,9 @@ const CatGirlsAreSexyRest = axios_1.default.create({
 exports.CatGirlsAreSexyRest = CatGirlsAreSexyRest;
 async function getDatabaseUser(userId) {
     const databaseUserRequest = (await DatabaseRest.get(`/users?ids=${userId}`)).data;
-    if (databaseUserRequest.error || databaseUserRequest.data.length > 0) {
-        const newUser = {
-            id: userId,
-            card: (new URLSearchParams({ color: constants_1.default.DEFAULT_CARD_COLOR, bg_delete: "", bg: constants_1.default.DEFAULT_CARD_BG, opacity: constants_1.default.DEFAULT_CARD_OPACITY })).toString(),
-            opts: '',
-            flags: 0
-        };
-        (await DatabaseRest.post(`/users`, [newUser]));
+    if (databaseUserRequest.error || databaseUserRequest.data.length <= 0) {
+        const newUser = { ...framework_1.FrameworkConstants.DEFAULT_USER_SETTINGS, id: userId };
+        (await DatabaseRest.put(`/users`, [newUser]));
         return newUser;
     }
     else {

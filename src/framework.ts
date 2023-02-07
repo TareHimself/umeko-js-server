@@ -92,6 +92,7 @@ export type TypedValuePair<T extends string> = { [key in T]: string; }
 
 export class OptsParser<T extends string = string> {
     opts: TypedValuePair<T>;
+    toString: undefined;
     constructor(a: TypedValuePair<T> | string) {
         if (typeof a === 'string') {
             this.opts = OptsParser.decode<T>(a);
@@ -110,11 +111,15 @@ export class OptsParser<T extends string = string> {
     }
 
     static decode<T extends string>(opts: string): TypedValuePair<T> {
-        return JSON.parse(opts);
+        try {
+            return JSON.parse(decodeURI(opts).trim());
+        } catch (error) {
+            return {} as TypedValuePair<T>;
+        }
     }
 
     encode() {
-        return JSON.stringify(this.opts);
+        return encodeURI(JSON.stringify(this.opts)).trim();
     }
 }
 
@@ -134,7 +139,7 @@ export class FrameworkConstants {
 
     static DEFAULT_GUILD_SETTINGS: IDatabaseGuildSettings = {
         id: "",
-        bot_opts: new OptsParser<ObjectValues<typeof EBotOptsKeys>>({ color: this.DEFAULT_BOT_COLOR, nickname: this.DEFAULT_BOT_NAME, locale: this.DEFAULT_BOT_LOCALE }).toString(),
+        bot_opts: new OptsParser<ObjectValues<typeof EBotOptsKeys>>({ color: this.DEFAULT_BOT_COLOR, nickname: this.DEFAULT_BOT_NAME, locale: this.DEFAULT_BOT_LOCALE }).encode(),
         join_opts: "",
         leave_opts: "",
         twitch_opts: "",
@@ -144,7 +149,7 @@ export class FrameworkConstants {
 
     static DEFAULT_USER_SETTINGS: IDatabaseUserSettings = {
         id: "",
-        card: new OptsParser<ObjectValues<typeof ECardOptsKeys>>({ color: FrameworkConstants.DEFAULT_USER_CARD_COLOR, delete_url: "", bg_url: "", opacity: this.DEFAULT_USER_CARD_OPACITY }).toString(),
+        card: new OptsParser<ObjectValues<typeof ECardOptsKeys>>({ color: FrameworkConstants.DEFAULT_USER_CARD_COLOR, delete_url: "", bg_url: "", opacity: this.DEFAULT_USER_CARD_OPACITY }).encode(),
         opts: "",
         flags: 0
     };
