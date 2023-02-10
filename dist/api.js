@@ -3,13 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CatGirlsAreSexyRest = exports.DatabaseRest = exports.DiscordRest = exports.getDatabaseUser = void 0;
+exports.CatGirlsAreSexyRest = exports.DatabaseRest = exports.DiscordRest = exports.getDatabaseGuilds = exports.getDatabaseUser = void 0;
 const axios_1 = __importDefault(require("axios"));
 const framework_1 = require("./framework");
 const DiscordRest = axios_1.default.create({
     baseURL: "https://discord.com/api/v9",
     headers: {
-        'Authorizationn': `Bot ${process.argv.includes('--debug') ? process.env.DISCORD_BOT_TOKEN_ALPHA : process.env.DISCORD_BOT_TOKEN}`
+        'Authorization': `Bot ${process.argv.includes('--debug') ? process.env.DISCORD_BOT_TOKEN_ALPHA : process.env.DISCORD_BOT_TOKEN}`
     }
 });
 exports.DiscordRest = DiscordRest;
@@ -36,3 +36,17 @@ async function getDatabaseUser(userId) {
     }
 }
 exports.getDatabaseUser = getDatabaseUser;
+async function getDatabaseGuilds(guilds) {
+    const databaseGuildRequest = (await DatabaseRest.get(`/guilds?ids=${guilds.join(',')}`)).data;
+    if (databaseGuildRequest.error)
+        throw new Error(databaseGuildRequest.data);
+    if (guilds.length === databaseGuildRequest.data.length)
+        return databaseGuildRequest.data;
+    const fetchedGuilds = databaseGuildRequest.data.map(g => g.id);
+    const missingGuilds = guilds.filter(a => !fetchedGuilds.includes(a));
+    const newData = missingGuilds.map(a => ({ ...framework_1.FrameworkConstants.DEFAULT_GUILD_SETTINGS, id: a }));
+    console.log(databaseGuildRequest.data, fetchedGuilds, missingGuilds);
+    await DatabaseRest.put("/guilds", missingGuilds);
+    return [...databaseGuildRequest.data, ...newData];
+}
+exports.getDatabaseGuilds = getDatabaseGuilds;

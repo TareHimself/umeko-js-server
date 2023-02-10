@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.tDeleteSession = exports.tInsertSession = exports.tInsertCachedGuildData = exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getCachedGuildData = exports.getGuildWebhooks = exports.getUserWebhooks = exports.getSessionFromToken = exports.getSession = exports.TimeToInteger = exports.pad = void 0;
+exports.tGetSessionFromToken = exports.tGetSession = exports.tDeleteSession = exports.tInsertSession = exports.tInsertCachedGuildData = exports.tInsertGuildsWebhook = exports.tInsertUsersWebhook = exports.getCachedGuildData = exports.getGuildWebhooks = exports.getUserWebhooks = exports.TimeToInteger = exports.pad = void 0;
 const path_1 = __importDefault(require("path"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const cluster_1 = __importDefault(require("cluster"));
@@ -54,7 +54,8 @@ if (cluster_1.default.isPrimary) {
         nickname TEXT NOT NULL,
         token STRING NOT NULL,
         refresh TEXT NOT NULL,
-        expire_at INTEGER NOT NULL
+        expire_at INTEGER NOT NULL,
+        ttl INTEGER NOT NULL
     ) WITHOUT ROWID;
     `,
         `
@@ -73,7 +74,7 @@ if (cluster_1.default.isPrimary) {
     CREATE TABLE IF NOT EXISTS guild_cache(
         id TEXT PRIMARY KEY,
         data TEXT NOT NULL,
-        ttl INTEGER DEFAULT 0
+        ttl INTEGER NOT NULL
     ) WITHOUT ROWID;
     `,
         `
@@ -102,24 +103,51 @@ if (cluster_1.default.isPrimary) {
         });
     }).immediate(TABLE_STATEMENTS);
 }
+const SESSION_TTL = 1000 * 60 * 30;
+const CACHED_DATA_TTL = 1000 * 60 * 5;
 const getSessionStatement = db.prepare('SELECT * FROM sessions WHERE id=@id');
 const getSessionFromTokenStatement = db.prepare('SELECT * FROM sessions WHERE token=@token');
 const getUserWebhooksStatement = db.prepare('SELECT url FROM user_hooks WHERE id=@id');
 const getGuildWebhooksStatement = db.prepare('SELECT url FROM guild_hooks WHERE id=@id');
 const getGuildDataCacheStatement = db.prepare('SELECT data FROM guild_cache WHERE id=@id');
-const insertSessionStatement = db.prepare('INSERT OR REPLACE INTO sessions VALUES (@id,@user,@avatar,@nickname,@token,@refresh,@expire_at)');
+const insertSessionStatement = db.prepare('INSERT OR REPLACE INTO sessions VALUES (@id,@user,@avatar,@nickname,@token,@refresh,@expire_at,@ttl)');
 const insertUserWebhookStatement = db.prepare('INSERT OR REPLACE INTO user_hooks VALUES (@id,@url)');
 const insertGuildWebhookStatement = db.prepare('INSERT OR REPLACE INTO guild_hooks VALUES (@id,@url)');
 const insertGuildDataCache = db.prepare('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)');
+const updateSessionTtl = db.prepare('UPDATE sessions SET ttl=@ttl WHERE id=@id');
+const updateSessionFromTokenTtl = db.prepare('UPDATE sessions SET ttl=@ttl WHERE token=@token');
 const deleteSessionStatement = db.prepare('DELETE FROM sessions WHERE id=@id');
-function getSession(sessionId) {
-    return getSessionStatement.all({ id: sessionId })[0];
-}
-exports.getSession = getSession;
-function getSessionFromToken(token) {
-    return getSessionFromTokenStatement.all({ token: token })[0];
-}
-exports.getSessionFromToken = getSessionFromToken;
+const deleteSessionFromTokenStatement = db.prepare('DELETE FROM sessions WHERE token=@token');
+const tGetSession = db.transaction((sessionId) => {
+    const targetTime = new Date();
+    const currentTimeAsInt = TimeToInteger(targetTime);
+    targetTime.setMilliseconds((targetTime.getSeconds() - SESSION_TTL));
+    const existing = getSessionStatement.all({ id: sessionId })[0];
+    if (!existing)
+        return null;
+    if (existing.ttl < TimeToInteger(targetTime)) {
+        deleteSessionStatement.run({ id: sessionId });
+        return null;
+    }
+    updateSessionTtl.run({ id: sessionId, ttl: currentTimeAsInt });
+    return existing;
+});
+exports.tGetSession = tGetSession;
+const tGetSessionFromToken = db.transaction((token) => {
+    const targetTime = new Date();
+    const currentTimeAsInt = TimeToInteger(targetTime);
+    targetTime.setMilliseconds((targetTime.getSeconds() - SESSION_TTL));
+    const existing = getSessionFromTokenStatement.all({ token: token })[0];
+    if (!existing)
+        return null;
+    if (existing.ttl < TimeToInteger(targetTime)) {
+        deleteSessionFromTokenStatement.run({ token: token });
+        return null;
+    }
+    updateSessionFromTokenTtl.run({ token: token, ttl: currentTimeAsInt });
+    return existing;
+});
+exports.tGetSessionFromToken = tGetSessionFromToken;
 function getUserWebhooks(user) {
     return getUserWebhooksStatement.all({ id: user });
 }
@@ -128,8 +156,12 @@ function getGuildWebhooks(guild) {
     return getGuildWebhooksStatement.all({ id: guild });
 }
 exports.getGuildWebhooks = getGuildWebhooks;
-function getCachedGuildData(guild) {
-    return getGuildDataCacheStatement.all({ id: guild });
+function getCachedGuildData(key) {
+    const data = getGuildDataCacheStatement.all({ id: key })[0]?.data;
+    if (data) {
+        return JSON.parse(data);
+    }
+    return null;
 }
 exports.getCachedGuildData = getCachedGuildData;
 const tInsertUsersWebhook = db.transaction((target, ids) => {
@@ -145,7 +177,7 @@ const tInsertGuildsWebhook = db.transaction((target, ids) => {
 });
 exports.tInsertGuildsWebhook = tInsertGuildsWebhook;
 const tInsertSession = db.transaction((session) => {
-    insertSessionStatement.run(session);
+    insertSessionStatement.run({ ...session, ttl: TimeToInteger(new Date()) });
 });
 exports.tInsertSession = tInsertSession;
 const tInsertCachedGuildData = db.transaction((guild, data) => {

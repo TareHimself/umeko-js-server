@@ -11,6 +11,10 @@ export interface IUserSession {
     expire_at: number;
 }
 
+export interface IUserSessionCached extends IUserSession {
+    ttl: number;
+}
+
 export interface ISubscriptionPayload {
     url: string;
     ids: string[]
@@ -18,6 +22,14 @@ export interface ISubscriptionPayload {
 
 export type IdentifierPair = { id: string; name: string; };
 
+export interface IDiscordGuildPartial {
+    id: string;
+    name: string;
+    icon: string;
+    owner: boolean;
+    permissions: number;
+    features: string[];
+}
 export interface IGuildFetchResponse {
     settings: IDatabaseGuildSettings;
     channels: IdentifierPair[];
@@ -35,4 +47,10 @@ export interface ILoginData {
     nickname: string;
     avatar: string;
     card_opts: string;
+}
+
+export interface ICardUpdate {
+    color: string;
+    opacity: number;
+    background: string;
 }

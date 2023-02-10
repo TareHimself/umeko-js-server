@@ -5,7 +5,7 @@ const sqlite_1 = require("./sqlite");
 function getSession(req) {
     if (req.params.session) {
         const sessionId = req.params.session;
-        const session = (0, sqlite_1.getSession)(sessionId);
+        const session = (0, sqlite_1.tGetSession)(sessionId);
         if (session === null) {
             throw new Error("Session does not exist");
         }

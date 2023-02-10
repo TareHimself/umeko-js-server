@@ -1,14 +1,14 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import cors from 'cors';
 import express, { Request as ExpressRequest } from 'express';
 import http from 'http';
 import FormData from 'form-data'
 import { v4 as uuidv4 } from 'uuid'
-import { CatGirlsAreSexyRest, DatabaseRest, DiscordRest, getDatabaseUser } from './api';
-import { IGuildFetchResponse, IGuildMeta, ISubscriptionPayload, IUserSession, ILoginData } from './types';
-import { buildResponse, getTimeAsInt, ICardUpdate, log } from './utils';
+import { CatGirlsAreSexyRest, DatabaseRest, DiscordRest, getDatabaseGuilds, getDatabaseUser } from './api';
+import { IGuildFetchResponse, IGuildMeta, ISubscriptionPayload, IUserSession, ILoginData, IDiscordGuildPartial, ICardUpdate } from './types';
+import { buildResponse, getTimeAsInt, isAdmin, log } from './utils';
 import { getSession } from './sessions';
-import { getCachedGuildData, getSessionFromToken, getUserWebhooks, tDeleteSession, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook } from './sqlite';
+import { getCachedGuildData, tGetSession, tGetSessionFromToken, getUserWebhooks, tDeleteSession, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook } from './sqlite';
 import { url } from 'inspector';
 import { ECardOptsKeys, IDatabaseGuildSettings, IDatabaseUserSettings, IUmekoApiResponse, ObjectValues, OptsParser } from './framework';
 
@@ -67,7 +67,7 @@ app.post('/login', async (req, res) => {
 
                 const dbUser = await getDatabaseUser(userDiscordDataResponse.user.id);
 
-                const existingSession = getSessionFromToken(DiscordResponseData.access_token);
+                const existingSession = tGetSessionFromToken(DiscordResponseData.access_token);
 
                 if (existingSession) {
                     res.send(buildResponse<ILoginData>({ session: existingSession.id, user: existingSession.user, nickname: existingSession.nickname, avatar: existingSession.avatar, card_opts: dbUser.card }))
@@ -115,6 +115,44 @@ app.get('/:session/guilds', async (req, res) => {
     try {
         const session = getSession(req);
 
+        const cached = getCachedGuildData<IDiscordGuildPartial[]>('meta-guilds')
+        if (cached) {
+            res.send(buildResponse(cached))
+            return
+        }
+        const headers = {
+            'Authorization': `Bearer ${session.token}`
+        }
+
+        const guildsFromDiscordResponse = (await axios.get<IDiscordGuildPartial[]>("https://discordapp.com/api/users/@me/guilds", { headers: headers }))
+
+        const guildsFromDiscord = guildsFromDiscordResponse.data
+        if (!guildsFromDiscord) {
+            res.send(buildResponse('recieved invalid response from discord api', true));
+            return
+        }
+
+
+        const guildsUserHasAuthorityIn = guildsFromDiscord.filter((guild) => {
+            return guild.owner || isAdmin(guild.permissions);
+        });
+
+        const guildsToFetch = guildsUserHasAuthorityIn.map(guild => guild.id)
+
+        const databaseGuildRequest = (await DatabaseRest.get<IUmekoApiResponse<IDatabaseGuildSettings[]>>(`/guilds?ids=${guildsToFetch.join(',')}`)).data;
+
+        if (databaseGuildRequest.error) {
+            res.send(buildResponse(databaseGuildRequest.data, databaseGuildRequest.error))
+            return;
+        }
+
+        const dbGuilds = databaseGuildRequest.data.map(g => g.id);
+
+        const guildsToSend = guildsUserHasAuthorityIn.filter(a => dbGuilds.includes(a.id))
+
+        res.send(buildResponse(guildsToSend));
+
+        tInsertCachedGuildData.deferred('meta-guilds', guildsToSend)
     } catch (error) {
         res.send(buildResponse(error.message, true))
     }
@@ -125,25 +163,22 @@ app.get('/:session/guilds/:guildId', async (req, res) => {
     try {
         const session = getSession(req);
 
-        const databaseResponse = (await DatabaseRest.get<IUmekoApiResponse<IDatabaseGuildSettings>>(`/guilds?ids=${req.params.guildId}`)).data;
+        const dbGuild = (await getDatabaseGuilds([req.params.guildId]))[0]
 
-        if (databaseResponse.error) {
-            throw new Error(databaseResponse.data);
-        }
+        const metaFromCache = getCachedGuildData<IGuildMeta>(`meta-guilds-${req.params.guildId}`);
 
-        const metaFromDb = getCachedGuildData<IGuildMeta>(`meta-${req.params.guildId}`);
-
-        if (metaFromDb.length) {
+        if (metaFromCache) {
             const payload: IGuildFetchResponse = {
-                settings: databaseResponse.data,
-                ...metaFromDb[0]
+                ...metaFromCache,
+                settings: dbGuild
             }
-            res.send(buildResponse(payload, databaseResponse.error));
+
+            res.send(buildResponse(payload));
         }
         else {
             const rawChannels = (await DiscordRest.get(`/guilds/${req.params.guildId}/channels`)).data;
-            const rawRoles = (await DiscordRest.get(`/guilds/${req.params.guildId}/roles`)).data;
 
+            const rawRoles = (await DiscordRest.get(`/guilds/${req.params.guildId}/roles`)).data;
 
             const textChannels = rawChannels.filter((channel => channel.type === 0)).map((channel) => {
                 return { id: channel.id, name: channel.name };
@@ -154,14 +189,14 @@ app.get('/:session/guilds/:guildId', async (req, res) => {
             });
 
             const payload: IGuildFetchResponse = {
-                settings: databaseResponse.data,
+                settings: dbGuild,
                 roles: roles,
                 channels: textChannels,
             }
 
-            res.send(buildResponse(payload, databaseResponse.error));
+            res.send(buildResponse(payload));
 
-            tInsertCachedGuildData.deferred(`meta-${req.params.guildId}`, { roles: roles, channels: textChannels });
+            tInsertCachedGuildData.deferred(`meta-guilds-${req.params.guildId}`, { roles: roles, channels: textChannels });
         }
 
 
@@ -169,7 +204,23 @@ app.get('/:session/guilds/:guildId', async (req, res) => {
         res.send(buildResponse(error.message, true))
     }
 });
+app.get('/:session', async (req, res) => {
 
+    try {
+        const existingSession = getSession(req);
+
+        if (!existingSession) {
+            res.send(buildResponse("Session Does Not Exist", true));
+            return;
+        }
+
+        const dbUser = await getDatabaseUser(existingSession.user);
+
+        res.send(buildResponse<ILoginData>({ session: existingSession.id, user: existingSession.user, nickname: existingSession.nickname, avatar: existingSession.avatar, card_opts: dbUser.card }))
+    } catch (error) {
+        res.send(buildResponse(error.message, true))
+    }
+});
 
 app.get('/:session/user', async (req, res) => {
 

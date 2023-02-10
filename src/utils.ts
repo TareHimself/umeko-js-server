@@ -8,12 +8,11 @@ export function log(...data) {
     console.log.apply(null, data);
 }
 
-export interface ICardUpdate {
-    color: string;
-    opacity: number;
-    background: string;
-}
-
 export function getTimeAsInt(): number {
     return 0
+}
+
+export function isAdmin(permissions: number) {
+    if (typeof permissions !== 'number') return false;
+    return eval(`(${permissions}n & (1n << 3n)) === (1n << 3n)`)
 }

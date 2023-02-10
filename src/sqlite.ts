@@ -2,7 +2,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import cluster from 'cluster';
 import * as fs from 'fs';
-import { IUserSession } from "./types";
+import { IUserSession, IUserSessionCached } from "./types";
 
 const DATABASE_DIR = path.join(process.cwd(), 'db')
 if (!fs.existsSync(DATABASE_DIR)) {
@@ -11,6 +11,10 @@ if (!fs.existsSync(DATABASE_DIR)) {
 
 export function pad(number: number) {
     return number < 10 ? `0${number}` : `${number}`;
+}
+
+export interface ICacheAble {
+    ttl: number
 }
 
 /**
@@ -38,7 +42,8 @@ if (cluster.isPrimary) {
         nickname TEXT NOT NULL,
         token STRING NOT NULL,
         refresh TEXT NOT NULL,
-        expire_at INTEGER NOT NULL
+        expire_at INTEGER NOT NULL,
+        ttl INTEGER NOT NULL
     ) WITHOUT ROWID;
     `,
         `
@@ -57,7 +62,7 @@ if (cluster.isPrimary) {
     CREATE TABLE IF NOT EXISTS guild_cache(
         id TEXT PRIMARY KEY,
         data TEXT NOT NULL,
-        ttl INTEGER DEFAULT 0
+        ttl INTEGER NOT NULL
     ) WITHOUT ROWID;
     `,
         `
@@ -93,28 +98,68 @@ if (cluster.isPrimary) {
     }).immediate(TABLE_STATEMENTS);
 }
 
+const SESSION_TTL = 1000 * 60 * 30;
+const CACHED_DATA_TTL = 1000 * 60 * 5;
+
 const getSessionStatement = db.prepare<{ id: string }>('SELECT * FROM sessions WHERE id=@id')
 const getSessionFromTokenStatement = db.prepare<{ token: string }>('SELECT * FROM sessions WHERE token=@token')
 const getUserWebhooksStatement = db.prepare<{ id: string }>('SELECT url FROM user_hooks WHERE id=@id')
 const getGuildWebhooksStatement = db.prepare<{ id: string }>('SELECT url FROM guild_hooks WHERE id=@id')
 const getGuildDataCacheStatement = db.prepare<{ id: string }>('SELECT data FROM guild_cache WHERE id=@id')
 
-const insertSessionStatement = db.prepare<IUserSession>('INSERT OR REPLACE INTO sessions VALUES (@id,@user,@avatar,@nickname,@token,@refresh,@expire_at)')
+const insertSessionStatement = db.prepare<IUserSession & ICacheAble>('INSERT OR REPLACE INTO sessions VALUES (@id,@user,@avatar,@nickname,@token,@refresh,@expire_at,@ttl)')
 const insertUserWebhookStatement = db.prepare<{ id: string, url: string }>('INSERT OR REPLACE INTO user_hooks VALUES (@id,@url)')
 const insertGuildWebhookStatement = db.prepare<{ id: string, url: string }>('INSERT OR REPLACE INTO guild_hooks VALUES (@id,@url)')
-const insertGuildDataCache = db.prepare<{ id: string, data: string, ttl: number }>('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)')
+const insertGuildDataCache = db.prepare<{ id: string, data: string, ttl: number } & ICacheAble>('INSERT OR REPLACE INTO guild_cache VALUES (@id,@data,@ttl)')
+
+const updateSessionTtl = db.prepare<{ id: string } & ICacheAble>('UPDATE sessions SET ttl=@ttl WHERE id=@id')
+const updateSessionFromTokenTtl = db.prepare<{ token: string } & ICacheAble>('UPDATE sessions SET ttl=@ttl WHERE token=@token')
 
 const deleteSessionStatement = db.prepare<{ id: string }>('DELETE FROM sessions WHERE id=@id')
+const deleteSessionFromTokenStatement = db.prepare<{ token: string }>('DELETE FROM sessions WHERE token=@token')
 
-export function getSession(sessionId: string) {
 
-    return (getSessionStatement.all({ id: sessionId }) as IUserSession[])[0];
-}
+const tGetSession = db.transaction((sessionId: string) => {
+    const targetTime = new Date()
+    const currentTimeAsInt = TimeToInteger(targetTime)
+    targetTime.setMilliseconds((targetTime.getSeconds() - SESSION_TTL))
 
-export function getSessionFromToken(token: string) {
+    const existing = getSessionStatement.all({ id: sessionId })[0] as IUserSessionCached | null
 
-    return (getSessionFromTokenStatement.all({ token: token }) as IUserSession[])[0];
-}
+    if (!existing) return null;
+
+    if (existing.ttl < TimeToInteger(targetTime)) {
+
+        deleteSessionStatement.run({ id: sessionId })
+
+        return null;
+    }
+
+    updateSessionTtl.run({ id: sessionId, ttl: currentTimeAsInt });
+
+    return existing
+})
+
+const tGetSessionFromToken = db.transaction((token: string) => {
+    const targetTime = new Date()
+    const currentTimeAsInt = TimeToInteger(targetTime)
+    targetTime.setMilliseconds((targetTime.getSeconds() - SESSION_TTL))
+
+    const existing = getSessionFromTokenStatement.all({ token: token })[0] as IUserSessionCached | null
+
+    if (!existing) return null;
+
+    if (existing.ttl < TimeToInteger(targetTime)) {
+
+        deleteSessionFromTokenStatement.run({ token: token })
+
+        return null;
+    }
+
+    updateSessionFromTokenTtl.run({ token: token, ttl: currentTimeAsInt });
+
+    return existing
+})
 
 export type WebHookInfo = { url: string }
 
@@ -126,8 +171,14 @@ export function getGuildWebhooks(guild: string) {
     return (getGuildWebhooksStatement.all({ id: guild }) as WebHookInfo[]);
 }
 
-export function getCachedGuildData<T>(guild: string) {
-    return (getGuildDataCacheStatement.all({ id: guild }) as T[]);
+export function getCachedGuildData<T>(key: string) {
+    const data = getGuildDataCacheStatement.all({ id: key })[0]?.data
+
+    if (data) {
+        return JSON.parse(data) as T
+    }
+
+    return null
 }
 
 const tInsertUsersWebhook = db.transaction((target: string, ids: string[]) => {
@@ -143,7 +194,7 @@ const tInsertGuildsWebhook = db.transaction((target: string, ids: string[]) => {
 })
 
 const tInsertSession = db.transaction((session: IUserSession) => {
-    insertSessionStatement.run(session);
+    insertSessionStatement.run({ ...session, ttl: TimeToInteger(new Date()) });
 })
 
 const tInsertCachedGuildData = db.transaction((guild: string, data: object) => {
@@ -160,6 +211,8 @@ export {
     tInsertCachedGuildData,
     tInsertSession,
     tDeleteSession,
+    tGetSession,
+    tGetSessionFromToken
 }
 
 

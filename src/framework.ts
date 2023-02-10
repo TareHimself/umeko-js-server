@@ -103,7 +103,11 @@ export class OptsParser<T extends string = string> {
     }
 
     get(optId: T, fallback: string = "") {
-        return this.opts[optId] || fallback;
+        if (this.opts[optId] === null || this.opts[optId] === undefined) {
+            return fallback;
+        }
+
+        return this.opts[optId];
     }
 
     set(optId: T, data: string) {

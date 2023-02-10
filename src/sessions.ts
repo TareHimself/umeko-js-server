@@ -1,10 +1,10 @@
 import { Request as ExpressRequest } from 'express';
-import { getSession as getSqliteSessionData } from './sqlite'
+import { tGetSession as getSqliteSessionData, tGetSession } from './sqlite'
 
 export function getSession(req: ExpressRequest) {
     if (req.params.session) {
         const sessionId = req.params.session;
-        const session = getSqliteSessionData(sessionId);
+        const session = tGetSession(sessionId);
         if (session === null) {
             throw new Error("Session does not exist")
         }
