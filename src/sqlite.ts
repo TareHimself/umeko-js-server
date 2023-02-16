@@ -188,7 +188,9 @@ const tInsertUsersWebhook = db.transaction((target: string, ids: string[]) => {
 })
 
 const tInsertGuildsWebhook = db.transaction((target: string, ids: string[]) => {
+
     for (let i = 0; i < ids.length; i++) {
+        console.log("ADDING", target, ids[i])
         insertGuildWebhookStatement.run({ id: ids[i], url: target });
     }
 })

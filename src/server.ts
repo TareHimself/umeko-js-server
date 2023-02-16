@@ -8,7 +8,7 @@ import { CatGirlsAreSexyRest, DatabaseRest, DiscordRest, getDatabaseGuilds, getD
 import { IGuildFetchResponse, IGuildMeta, ISubscriptionPayload, IUserSession, ILoginData, IDiscordGuildPartial, ICardUpdate } from './types';
 import { buildResponse, getTimeAsInt, isAdmin, log } from './utils';
 import { getSession } from './sessions';
-import { getCachedGuildData, tGetSession, tGetSessionFromToken, getUserWebhooks, tDeleteSession, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook } from './sqlite';
+import { getCachedGuildData, tGetSession, tGetSessionFromToken, getUserWebhooks, tDeleteSession, tInsertCachedGuildData, tInsertGuildsWebhook, tInsertSession, tInsertUsersWebhook, getGuildWebhooks } from './sqlite';
 import { url } from 'inspector';
 import { ECardOptsKeys, IDatabaseGuildSettings, IDatabaseUserSettings, IUmekoApiResponse, ObjectValues, OptsParser } from './framework';
 
@@ -22,16 +22,45 @@ const port = process.argv.includes('--debug') ? 9000 : 8080;
 
 function notifyUserSettingsChanged(user: string) {
     getUserWebhooks(user).forEach(({ url }) => {
-        axios.post(url, user, { validateStatus: () => true })
+        axios.post(url, buildResponse(user)).catch(() => log("Error sending update to ", url, "for user", user))
     });
 }
 
 function notifyGuildSettingsChanged(guild: string) {
-    getUserWebhooks(guild).forEach(({ url }) => {
-        axios.post(url, guild, { validateStatus: () => true })
+    log("GUILD ID", guild)
+    log("Sending guild updates to", getGuildWebhooks(guild))
+    getGuildWebhooks(guild).forEach(({ url }) => {
+        axios.post(url, buildResponse(guild)).catch(() => log("Error sending update to ", url, "for guild", guild))
     });
 }
 
+app.post('/n/users', async (req, res) => {
+
+    try {
+        const payload: ISubscriptionPayload = req.body;
+
+        tInsertUsersWebhook.deferred(payload.url, payload.ids);
+
+        res.send(buildResponse("Updated"));
+    } catch (error) {
+        res.send(buildResponse(error.message, true))
+    }
+
+})
+
+app.post('/n/guilds', async (req, res) => {
+
+    try {
+        const payload: ISubscriptionPayload = req.body;
+
+        tInsertGuildsWebhook.deferred(payload.url, payload.ids);
+
+        res.send(buildResponse("Updated"));
+    } catch (error) {
+        res.send(buildResponse(error.message, true));
+    }
+
+})
 
 app.get('/', async (req, res) => {
     res.send(buildResponse("Not Implemented", true))
@@ -317,34 +346,6 @@ app.post('/:session/card', async (req, res) => {
         notifyUserSettingsChanged(dbUser.id);
     } catch (error) {
         res.send(buildResponse(error.message, true))
-    }
-
-})
-
-app.delete('/notify/users', async (req, res) => {
-
-    try {
-        const payload: ISubscriptionPayload = req.body;
-
-        tInsertUsersWebhook.deferred(payload.url, payload.ids);
-
-        res.send(buildResponse("Updated"));
-    } catch (error) {
-        res.send(buildResponse(error.message, true))
-    }
-
-})
-
-app.delete('/notify/guilds', async (req, res) => {
-
-    try {
-        const payload: ISubscriptionPayload = req.body;
-
-        tInsertGuildsWebhook.deferred(payload.url, payload.ids);
-
-        res.send(buildResponse("Updated"));
-    } catch (error) {
-        res.send(buildResponse(error.message, true));
     }
 
 })
