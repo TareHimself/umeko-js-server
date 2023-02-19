@@ -1,0 +1,15 @@
+DatabaseRest.get('/users?ids=604699803468824676,979739996439326830').then((r) => {
+    const cardInfo = r.data.data.map(u => [u.id, new OptsParser<ObjectValues<typeof ECardOptsKeys>>(u.card)]) as [string, OptsParser<ObjectValues<typeof ECardOptsKeys>>][]
+    const result = cardInfo.map(i => {
+        i[1].set('bg_url', i[1].get('bg_url').replace('catgirlsare.sexy', 'cgas.io'))
+        i[1].set('delete_url', i[1].get('delete_url').replace('catgirlsare.sexy', 'cgas.io'))
+        return {
+            id: i[0],
+            card: i[1].encode()
+        };
+    })
+    console.log(result)
+    DatabaseRest.post('/users', result).then((r) => {
+        console.log(r.data)
+    })
+})
