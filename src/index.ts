@@ -1,5 +1,5 @@
 try {
-    process.env = require("../secretes.json");
+    process.env = { ...process.env, ...require("../secretes.json"), NODE_TLS_REJECT_UNAUTHORIZED: '0' };
 } catch (error) {
     throw new Error("Missing Secretes.json");
 }

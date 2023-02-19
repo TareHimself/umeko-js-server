@@ -17,7 +17,7 @@ const DatabaseRest = axios.create({
 })
 
 const CatGirlsAreSexyRest = axios.create({
-    baseURL: "https://catgirlsare.sexy/api"
+    baseURL: "https://cgas.io/api"
 })
 
 export async function getDatabaseUser(userId: string) {

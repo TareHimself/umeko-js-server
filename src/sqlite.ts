@@ -9,12 +9,12 @@ if (!fs.existsSync(DATABASE_DIR)) {
     fs.mkdirSync(DATABASE_DIR, { recursive: true });
 }
 
-export function pad(number: number) {
-    return number < 10 ? `0${number}` : `${number}`;
-}
-
 export interface ICacheAble {
     ttl: number
+}
+
+export function pad(number: number) {
+    return number < 10 ? `0${number}` : `${number}`;
 }
 
 /**
