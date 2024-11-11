@@ -1,59 +1,179 @@
 import axios from 'axios';
 import Constants from './constants';
-import { FrameworkConstants, IDatabaseGuildSettings, IDatabaseUserSettings, IUmekoApiResponse } from './framework';
+import { ClientConfig, Client } from 'pg';
+import createSubscriber from 'pg-listen';
+import { PartialWithSome } from './types';
+import {
+	FrameworkConstants,
+	IDatabaseGuildSettings,
+	IDatabaseUserSettings,
+} from './common/index';
+import { makeUpdateStatement } from './utils';
 
-const DiscordRest = axios.create({
-    baseURL: "https://discord.com/api/v9",
-    headers: {
-        'Authorization': `Bot ${process.argv.includes('--debug') ? process.env.DISCORD_BOT_TOKEN_ALPHA : process.env.DISCORD_BOT_TOKEN}`
-    }
-})
+export const DiscordRest = axios.create({
+	baseURL: 'https://discord.com/api/v9',
+	headers: {
+		Authorization: `Bot ${
+			process.argv.includes('--debug')
+				? process.env.DISCORD_BOT_TOKEN_ALPHA
+				: process.env.DISCORD_BOT_TOKEN
+		}`,
+	},
+});
 
-const DatabaseRest = axios.create({
-    baseURL: `${process.argv.includes('--debug') ? process.env.DB_API_DEBUG : process.env.DB_API}`,
-    headers: {
-        'x-api-key': process.env.DB_API_TOKEN || ""
-    }
-})
+export const CatGirlsAreSexyRest = axios.create({
+	baseURL: 'https://cgas.io/api',
+});
 
-const CatGirlsAreSexyRest = axios.create({
-    baseURL: "https://cgas.io/api"
-})
+const dbConnectionInfo: ClientConfig = {
+	host: process.env.DB_HOST,
+	database: process.env.DB_TARGET,
+	port: 5432,
+	user: process.env.DB_USER,
+	password: process.env.DB_PASS,
+};
 
-export async function getDatabaseUser(userId: string) {
+export const dbConnection = new Client(dbConnectionInfo);
 
-    const databaseUserRequest = (await DatabaseRest.get<IUmekoApiResponse<IDatabaseUserSettings[]>>(`/users?ids=${userId}`)).data;
-    if (databaseUserRequest.error || databaseUserRequest.data.length <= 0) {
-        const newUser: IDatabaseUserSettings = { ...FrameworkConstants.DEFAULT_USER_SETTINGS, id: userId };
+export const dbSubscriber = createSubscriber(dbConnectionInfo);
 
-        (await DatabaseRest.put<IUmekoApiResponse<string>>(`/users`, [newUser]))
-        return newUser;
-    }
-    else {
-        return databaseUserRequest.data[0];
-    }
+async function transaction(
+	callback: (connection: typeof dbConnection) => Promise<void>
+) {
+	try {
+		await dbConnection.query('BEGIN');
+		await callback(dbConnection);
+		await dbConnection.query('COMMIT');
+	} catch (error) {
+		await dbConnection.query('ROLLBACK');
+		throw error;
+	}
 }
 
-export async function getDatabaseGuilds(guilds: string[]) {
-    const databaseGuildRequest = (await DatabaseRest.get<IUmekoApiResponse<IDatabaseGuildSettings[]>>(`/guilds?ids=${guilds.join(',')}`)).data;
-    if (databaseGuildRequest.error) throw new Error(databaseGuildRequest.data);
+export async function fetchUsers(
+	ids: string[],
+	uploadMissing: boolean = true
+): Promise<IDatabaseUserSettings[]> {
+	const guildsQueryResult = await dbConnection.query<IDatabaseUserSettings>(
+		`SELECT * FROM users WHERE id = ANY($1)`,
+		[ids]
+	);
 
-    if (guilds.length === databaseGuildRequest.data.length) return databaseGuildRequest.data;
+	const usersFetched = [...guildsQueryResult.rows];
 
-    const fetchedGuilds = databaseGuildRequest.data.map(g => g.id)
-    const missingGuilds = guilds.filter(a => !fetchedGuilds.includes(a))
+	if (uploadMissing) {
+		const idsGotten = usersFetched.map((a) => a.id);
+		const idsNeeded = ids.filter((a) => !idsGotten.includes(a));
 
-    const newData = missingGuilds.map(a => ({ ...FrameworkConstants.DEFAULT_GUILD_SETTINGS, id: a }))
+		if (idsNeeded.length > 0) {
+			await transaction(async (con) => {
+				await Promise.allSettled([
+					idsNeeded.map((a) => {
+						const newData: IDatabaseUserSettings = {
+							...FrameworkConstants.DEFAULT_USER_SETTINGS,
+							id: a,
+						};
 
-    console.log(databaseGuildRequest.data, fetchedGuilds, missingGuilds)
+						usersFetched.push(newData);
 
-    await DatabaseRest.put<IUmekoApiResponse<string>>("/guilds", missingGuilds)
-
-    return [...databaseGuildRequest.data, ...newData]
+						return con.query('INSERT INTO users VALUES ($1,$2,$3)', [
+							newData.id,
+							newData.card,
+							newData.opts,
+						]);
+					}),
+				]);
+			});
+		}
+	}
+	console.log('Fetched Users', ids, usersFetched);
+	return usersFetched;
 }
 
-export {
-    DiscordRest,
-    DatabaseRest,
-    CatGirlsAreSexyRest
+export async function fetchGuilds(
+	ids: string[],
+	uploadMissing: boolean = true
+): Promise<IDatabaseGuildSettings[]> {
+	const guildsQueryResult = await dbConnection.query<IDatabaseGuildSettings>(
+		`SELECT * FROM guilds WHERE id = ANY($1)`,
+		[ids]
+	);
+	const guildsFetched = [...guildsQueryResult.rows];
+	if (uploadMissing) {
+		const idsGotten = guildsFetched.map((a) => a.id);
+		const idsNeeded = ids.filter((a) => !idsGotten.includes(a));
+
+		if (idsNeeded.length > 0) {
+			await transaction(async (con) => {
+				await Promise.allSettled([
+					idsNeeded.map((a) => {
+						const newData: IDatabaseGuildSettings = {
+							...FrameworkConstants.DEFAULT_GUILD_SETTINGS,
+							id: a,
+						};
+
+						guildsFetched.push(newData);
+
+						return con.query(
+							'INSERT INTO guilds VALUES ($1,$2,$3,$4,$5,$6,$7)',
+							[
+								newData.id,
+								newData.bot_opts,
+								newData.join_opts,
+								newData.leave_opts,
+								newData.twitch_opts,
+								newData.level_opts,
+								newData.opts,
+							]
+						);
+					}),
+				]);
+			});
+		}
+	}
+
+	console.log('Fetched Guilds', ids, guildsFetched);
+	return guildsFetched;
+}
+
+export async function updateUser(
+	update: PartialWithSome<IDatabaseUserSettings, 'id'>
+) {
+	const [statement, params] = makeUpdateStatement(update, ['id'], 2);
+
+	if (params.length === 0) {
+		return;
+	}
+
+	await transaction(async (conn) => {
+		await conn.query(`UPDATE users ${statement} WHERE id = $1`, [
+			update.id,
+			...params,
+		]);
+	});
+
+	await dbSubscriber.notify('update_user', {
+		id: update.id,
+	});
+}
+
+export async function updateGuild(
+	update: PartialWithSome<IDatabaseGuildSettings, 'id'>
+) {
+	const [statement, params] = makeUpdateStatement(update, ['id'], 2);
+
+	if (params.length === 0) {
+		return;
+	}
+
+	await transaction(async (conn) => {
+		await conn.query(`UPDATE guilds ${statement} WHERE id = $1`, [
+			update.id,
+			...params,
+		]);
+	});
+
+	await dbSubscriber.notify('update_guild', {
+		id: update.id,
+	});
 }
